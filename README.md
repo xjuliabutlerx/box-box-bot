@@ -24,12 +24,18 @@ src/box_box_bot/
   config.py        # env loading, LangSmith wiring, fastf1 cache path
   data/
     fastf1_client.py  # only module that talks to fastf1/Ergast directly
-  tools/            # LangChain tool wrappers around data/ (step 2)
-  rag/              # embedding + retrieval over race recaps (step 3)
+  tools/
+    fastf1_tools.py   # LangChain @tool wrappers around data/ (step 2)
+  rag/
+    embeddings.py      # local fastembed model adapted to LangChain's Embeddings
+    ingest.py           # builds the Chroma vector store from data/race_recaps/
+    retriever.py        # opens the persisted store, hands back a retriever
   agent/            # LangGraph graph definition (step 4)
   app/              # Streamlit entrypoint (step 6)
 data/
   cache/            # fastf1 disk cache (gitignored, rebuilds on first fetch)
+  race_recaps/      # 12 original recap docs (2025 title fight + 2026 so far)
+  vectorstore/      # persisted Chroma index (gitignored, rebuild via ingest.py)
 ```
 
 `data/fastf1_client.py` is the only place fastf1/Ergast get imported.
@@ -60,3 +66,27 @@ cp .env.example .env  # then fill in ANTHROPIC_API_KEY and LANGSMITH_API_KEY
 Standings come from `fastf1.ergast` (session objects don't carry cumulative
 championship state); race results and lap data come from
 `fastf1.get_session(...).load()`.
+
+## RAG layer
+
+`data/race_recaps/` holds 12 original recap documents (see its own README
+for the full list and sourcing notes) covering the 2025 title fight and the
+2026 season so far. `rag/ingest.py` chunks them (`RecursiveCharacterTextSplitter`,
+500 chars / 50 overlap) and embeds each chunk locally via `fastembed`
+(`BAAI/bge-small-en-v1.5`, no API key, no network calls after the first
+model download) into a persisted Chroma collection. `rag/retriever.py`
+opens that collection and returns a standard LangChain retriever.
+
+Rebuild the index after editing the corpus:
+
+```bash
+python -m box_box_bot.rag.ingest
+```
+
+**Known limitation:** retrieval quality is noticeably better for
+specific queries ("2025 Abu Dhabi Grand Prix championship finale") than
+vague ones ("why did Verstappen lose the championship?") — the latter
+pulled in irrelevant 2026 chunks in testing, since the small local
+embedding model doesn't strongly separate the two seasons on vague
+phrasing alone. Step 4 (the agent) needs to account for this rather than
+assume raw user questions are good retrieval queries as-is.
