@@ -27,10 +27,22 @@ Run the app locally:
 streamlit run src/box_box_bot/app/streamlit_app.py
 ```
 
-There is no automated test suite yet (`tests/` is a placeholder package) and
-no configured linter — verification during development has been manual
-smoke tests: invoking tools/the agent directly in a Python shell, and
-driving the Streamlit UI in a real browser for UI changes.
+Run the test suite (needs `requirements-dev.txt`, not just `requirements.txt`):
+
+```bash
+pip install -r requirements-dev.txt
+pytest tests/                          # full suite
+pytest tests/test_citations.py -v      # single file
+pytest tests/test_cost.py::test_estimate_gate_cost_handles_none  # single test
+```
+
+Every external call (`fastf1`/`Ergast`, `ChatAnthropic`) is mocked in tests
+— the suite runs in ~1s with no network calls, no Anthropic spend, and no
+`ANTHROPIC_API_KEY` required. The one exception is `fastembed`'s local
+model in `test_embeddings.py`, which needs network access only for its
+one-time download if not already cached. There's no configured linter —
+UI changes still get verified manually by driving the Streamlit app in a
+real browser (`tests/` doesn't cover `app/streamlit_app.py`).
 
 ## Architecture
 
