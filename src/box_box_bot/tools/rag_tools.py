@@ -1,13 +1,23 @@
+import threading
+
 from langchain_core.tools import tool
 
 from box_box_bot.rag.retriever import get_retriever
 
 _retriever = None
+_retriever_lock = threading.Lock()
 
 def _get_retriever():
+    # A multi-agent supervisor can issue parallel tool calls (e.g. two
+    # search_race_recaps calls in the same turn), so this lazy singleton
+    # needs a lock - two threads racing through the first `is None` check
+    # both tried to construct the Chroma client for the same path
+    # concurrently and hit a KeyError inside chromadb's client registry.
     global _retriever
     if _retriever is None:
-        _retriever = get_retriever()
+        with _retriever_lock:
+            if _retriever is None:
+                _retriever = get_retriever()
     return _retriever
 
 @tool(parse_docstring=True)

@@ -70,6 +70,18 @@ def test_get_race_results_serializes_pandas_nat_and_timedelta():
     assert "NaT" in parsed[0]["Q1"]
 
 
+def test_get_race_results_accepts_race_name_for_round():
+    # Regression test: round used to be int-only, which meant the model
+    # had to guess a round number for a named race rather than pass a name
+    # it already knew for certain - see test_fastf1_client.py for the fix.
+    fake_data = [{"Position": 1.0, "Abbreviation": "VER"}]
+    with patch("box_box_bot.tools.fastf1_tools.fastf1_client.get_race_results", return_value=fake_data) as mock_fn:
+        result = get_race_results.invoke({"season": 2025, "round": "Bahrain"})
+
+    mock_fn.assert_called_once_with(2025, "Bahrain")
+    assert json.loads(result) == fake_data
+
+
 def test_get_fastest_laps_passes_all_args_through():
     fake_data = [{"Driver": "VER", "LapTime": "0 days 00:01:29.708000"}]
     with patch("box_box_bot.tools.fastf1_tools.fastf1_client.get_fastest_laps", return_value=fake_data) as mock_fn:

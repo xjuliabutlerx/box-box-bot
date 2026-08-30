@@ -35,27 +35,27 @@ def get_constructor_standings(season:int, round:int | None = None) -> str:
     return json.dumps(data, default=str)
 
 @tool(parse_docstring=True)
-def get_race_results(season: int, round: int) -> str:
+def get_race_results(season: int, round: int | str) -> str:
     """Get the classified results for a single race: grid/finish position, points, and status.
 
     Use this to answer questions about the result of a particular race.
 
     Args:
         season: The four-digit F1 season year, e.g. 2023
-        round: Race round number within the season. Omit for the latest or final standings.
+        round: Race round number within the season (e.g. 4), or the race name if you're not sure of the round number (e.g. "Bahrain", "Monaco", "Emilia Romagna Grand Prix") - this is fuzzy-matched against each event's country/location/name. Prefer passing the name over guessing a round number you aren't certain of.
     """
     data = fastf1_client.get_race_results(season, round)
     return json.dumps(data, default=str)
 
 @tool(parse_docstring=True)
-def get_fastest_laps(season:int, round:int, session_type: str = "R", top_n: int = 5) -> str:
+def get_fastest_laps(season:int, round: int | str, session_type: str = "R", top_n: int = 5) -> str:
     """Get each driver's single fastest lap in a session, sorted quickest first.
 
     Use this to answer questions about the fastest laps for a particular race.
-    
+
     Args:
         season: The four-digit F1 season year, e.g. 2023
-        round: Race round number within the season
+        round: Race round number within the season (e.g. 4), or the race name if you're not sure of the round number (e.g. "Bahrain", "Monaco", "Emilia Romagna Grand Prix") - this is fuzzy-matched against each event's country/location/name. Prefer passing the name over guessing a round number you aren't certain of.
         session_type: The F1 session type. One of 'FP1', 'FP2', 'FP3' (practice), 'Q' (qualifying), 'R' (race), 'S' (sprint race). Sprint weekends also have a session that sets the sprint grid: pass 'SS' for 2023 events or 'SQ' for 2024+ events.
         top_n: The fastest n drivers
     """

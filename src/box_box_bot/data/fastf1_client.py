@@ -48,15 +48,19 @@ def get_constructor_standings(season: int, round: int | None = None) -> list[dic
     return response.content[0].to_dict(orient="records")
 
 
-def get_race_results(season: int, round: int) -> list[dict]:
-    """Classified results for a single race: grid/finish position, points, status."""
+def get_race_results(season: int, round: int | str) -> list[dict]:
+    """Classified results for a single race: grid/finish position, points, status.
+
+    `round` can be a round number or a race name - `fastf1.get_session`
+    fuzzy-matches a string against each event's country/location/name.
+    """
     _ensure_cache()
     session = fastf1.get_session(season, round, "R")
     session.load(laps=False, telemetry=False, weather=False, messages=False)
     return session.results.to_dict(orient="records")
 
 
-def get_fastest_laps(season: int, round: int, session_type: str = "R", top_n: int = 5) -> list[dict]:
+def get_fastest_laps(season: int, round: int | str, session_type: str = "R", top_n: int = 5) -> list[dict]:
     """Each driver's single fastest lap in a session, sorted quickest first.
 
     `session_type` follows fastf1 convention: 'FP1'/'FP2'/'FP3', 'Q', 'R'.

@@ -54,6 +54,35 @@ def test_get_race_results_loads_session_without_laps_or_telemetry():
     assert result == [{"Position": 1.0, "Abbreviation": "PIA"}]
 
 
+def test_get_race_results_accepts_race_name_instead_of_round():
+    # Regression test: round used to be int-only, forcing the model to
+    # recall/guess a round number for a named race - a real hallucination
+    # that once pulled the wrong race entirely. fastf1.get_session already
+    # fuzzy-matches a string round against event country/location/name, so
+    # this should just pass the name straight through untouched.
+    fake_session = MagicMock()
+    fake_session.results = pd.DataFrame([{"Position": 1.0, "Abbreviation": "VER"}])
+
+    with patch("box_box_bot.data.fastf1_client.fastf1") as mock_fastf1:
+        mock_fastf1.get_session.return_value = fake_session
+        fastf1_client.get_race_results(2025, "Bahrain")
+
+    mock_fastf1.get_session.assert_called_once_with(2025, "Bahrain", "R")
+
+
+def test_get_fastest_laps_accepts_race_name_instead_of_round():
+    fake_session = MagicMock()
+    fake_session.laps = pd.DataFrame(
+        [{"Driver": "VER", "Team": "Red Bull", "LapTime": pd.Timedelta(seconds=90), "LapNumber": 1, "Compound": "SOFT"}]
+    )
+
+    with patch("box_box_bot.data.fastf1_client.fastf1") as mock_fastf1:
+        mock_fastf1.get_session.return_value = fake_session
+        fastf1_client.get_fastest_laps(2025, "Bahrain")
+
+    mock_fastf1.get_session.assert_called_once_with(2025, "Bahrain", "R")
+
+
 def test_get_fastest_laps_picks_each_drivers_single_fastest_lap():
     # Two drivers, each with multiple laps (including a NaN LapTime that
     # should be dropped) - only the fastest lap per driver should survive,

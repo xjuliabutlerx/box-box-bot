@@ -8,9 +8,12 @@ championship in [year]?"
 
 ## Stack
 
-- **langchain** (`langchain.agents.create_agent`) — the agent's tool-calling
-  loop; this superseded `langgraph.prebuilt.create_react_agent` mid-build
-  (see Failure modes below)
+- **langchain** (`langchain.agents.create_agent`) — builds each specialist
+  agent's tool-calling loop; this superseded
+  `langgraph.prebuilt.create_react_agent` mid-build (see Failure modes
+  below)
+- **langgraph-supervisor** (`create_supervisor`) — the root agent that
+  routes between specialists and composes the final answer
 - **langgraph** (`checkpoint.memory.InMemorySaver`) — conversation memory
 - **fastf1** + **fastf1.ergast** — race/session results and championship
   standings
@@ -35,7 +38,9 @@ src/box_box_bot/
     ingest.py           # builds the Chroma vector store from data/race_recaps/
     retriever.py        # opens the persisted store, hands back a retriever
   agent/
-    graph.py            # builds the agent: model + tools + system prompt + checkpointer
+    graph.py            # builds the supervisor: specialists + routing prompt + checkpointer
+    stats_agent.py       # specialist: fastf1 tools, for factual/numeric questions
+    narrative_agent.py    # specialist: the RAG tool, for "why"/"what happened" questions
     run.py               # ask() - the interface the app calls: invoke + extract answer/citations/cost
     citations.py         # pulls structured citations out of tool results, verified against the answer text
     cost.py               # per-turn token usage -> estimated dollar cost
@@ -132,14 +137,32 @@ reverse-engineering sources after the fact.
 
 ## Agent
 
-`agent/graph.py` builds the agent via `langchain.agents.create_agent`
-(model + both tool sets + a system prompt steering which tool to use
-when + an `InMemorySaver` checkpointer). `agent/run.py`'s `ask(agent,
-message, thread_id)` is the interface everything else calls: invoke,
+box-box-bot is a multi-agent system built with `langgraph-supervisor`:
+`agent/graph.py`'s `build_agent()` builds a supervisor that delegates to
+two specialist sub-agents, each its own `langchain.agents.create_agent`
+instance with its own tools and system prompt —
+`agent/stats_agent.py` (fastf1 tools, for factual/numeric questions) and
+`agent/narrative_agent.py` (the RAG tool, for "why"/"what happened"
+questions). The supervisor's own prompt decides which specialist(s) a
+question needs and composes the final answer from what they return; a
+question like "how did the standings change after Monza and why" hits
+both in one turn. `agent/run.py`'s `ask(agent, message, thread_id)` is
+still the interface everything else calls, unchanged by this — invoke,
 extract the answer text (Claude Sonnet 5 returns content as a list of
 thinking/text blocks when tools are involved, not a plain string),
 extract citations, and estimate cost — returning
-`{"answer", "citations", "usage"}`.
+`{"answer", "citations", "usage"}`. This is a deliberate property of the
+layered design: `run.py` only depends on `build_agent()` returning
+something with `.invoke()`, so swapping a single agent for a supervisor
+graph underneath it required zero changes above this layer.
+
+`create_supervisor` must be called with `output_mode="full_history"`
+(the default, `"last_message"`, only passes each specialist's final
+answer up — not its tool calls — which would silently zero out citations
+and per-call cost tracking below, since both scan the message list for
+specific tool/AI message shapes and degrade to empty rather than
+erroring). See Failure modes below for two more things live testing
+turned up when this went from one agent to three.
 
 ### Memory
 
@@ -271,3 +294,43 @@ code rather than reading it — a reminder that "the code looks right" and
   overshoot. Acceptable for expected traffic on a portfolio demo; the
   actual hard backstop is the spend limit set in the Anthropic Console,
   not this in-app counter.
+- **A racing lazy-singleton crashed the RAG tool.** Going from one agent
+  to a supervisor made LangGraph issue parallel tool calls far more often
+  (e.g. two `search_race_recaps` calls for two sub-queries in the same
+  turn). `tools/rag_tools.py`'s retriever was a lazy singleton with no
+  lock — two threads racing through its first `is None` check both tried
+  to construct the Chroma client for the same path at once, and one of
+  them hit a raw `KeyError` inside chromadb's own client registry. Fixed
+  with a `threading.Lock` double-checked lock, the same pattern already
+  used for the Streamlit cost tracker below. This bug existed before the
+  supervisor refactor too — it just never had two threads hit that
+  first-call path at the same moment until multi-agent tool calls made it
+  common instead of theoretical.
+- **The supervisor doesn't reliably delegate just because a specialist
+  exists.** Early testing showed it would sometimes answer a "why did X
+  matter" sub-question directly from `stats_agent`'s numbers instead of
+  calling `narrative_agent`, even with an explicit routing example in the
+  prompt — a "why" question with rich enough stats already sitting in
+  context is enough for the model to feel it doesn't need another hop.
+  Fixed by making the supervisor prompt explicitly forbid answering
+  "why"/"what happened" content from `stats_agent`'s data alone. Worth
+  remembering for the phase 2 predictor agent too: tool/agent
+  *availability* isn't the same as tool/agent *use*, and that gap only
+  shows up by actually running real questions through it.
+- **`stats_agent` hallucinated a round number for a named race.**
+  `get_race_results(season, round)` required an integer round, so a
+  question about "the 2025 Bahrain Grand Prix" forced the model to
+  recall which round number Bahrain was that year rather than just using
+  the name it already knew for certain — and it got Round 1 instead of
+  Round 4. `stats_agent`'s wrong results then visibly contradicted
+  `narrative_agent`'s (correct) RAG answer in the same turn. Root cause:
+  `fastf1.get_session(year, gp, ...)` already accepts `gp` as a string
+  and fuzzy-matches it against each event's country/location/name — the
+  tool wrapper was more restrictive than the library it wraps, for no
+  reason. Fixed by widening `round` to `int | str` on `get_race_results`
+  and `get_fastest_laps` (the two tools that hit `get_session`) and
+  telling the model in both the tool docstring and `STATS_SYSTEM_PROMPT`
+  to pass the race name instead of guessing a round number it isn't sure
+  of. This bug predates the supervisor split — the single-agent version
+  had the identical vulnerability, it just never had a second data
+  source in the same turn to visibly contradict.

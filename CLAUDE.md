@@ -51,8 +51,8 @@ and the intent is that any layer can be swapped without touching the ones
 above it:
 
 ```
-data/fastf1_client.py  -->  tools/*.py  -->  agent/graph.py  -->  app/streamlit_app.py
-   (fastf1/Ergast)         (@tool wrappers)   (create_agent)      (chat UI)
+data/fastf1_client.py  -->  tools/*.py  -->  agent/{stats,narrative}_agent.py  -->  agent/graph.py  -->  app/streamlit_app.py
+   (fastf1/Ergast)         (@tool wrappers)      (create_agent specialists)      (supervisor)        (chat UI)
                                                      ^
                               rag/{embeddings,ingest,retriever}.py
                                         (Chroma + fastembed)
@@ -62,7 +62,13 @@ data/fastf1_client.py  -->  tools/*.py  -->  agent/graph.py  -->  app/streamlit_
   directly. It returns plain `list[dict]` (via `.to_dict(orient="records")`
   on pandas output). Championship standings come from `fastf1.ergast`
   (session objects don't carry cumulative state); race results/lap data
-  come from `fastf1.get_session(...).load()`.
+  come from `fastf1.get_session(...).load()`. `get_race_results` and
+  `get_fastest_laps` take `round: int | str` on purpose — `fastf1.get_session`
+  already fuzzy-matches a string round against each event's
+  country/location/name, so the model can pass a race name directly
+  instead of recalling/guessing a round number. A stricter `int`-only
+  signature once caused the model to hallucinate the wrong round for a
+  named race (see README's Failure modes).
 - **`tools/`** wraps both `data/fastf1_client.py` and `rag/retriever.py` as
   LangChain `@tool(parse_docstring=True)` functions. Every tool output goes
   through `json.dumps(..., default=str)` — pandas output routinely contains
@@ -73,13 +79,46 @@ data/fastf1_client.py  -->  tools/*.py  -->  agent/graph.py  -->  app/streamlit_
   tool's text output — this is what makes the citation system in
   `agent/citations.py` possible later; nothing about citations is bolted on
   after the fact.
-- **`agent/graph.py`** builds the agent via `langchain.agents.create_agent`
-  (not `langgraph.prebuilt.create_react_agent`, which this project migrated
-  away from mid-build after it was deprecated in favor of the former —
-  same underlying tool-calling loop, but the system-prompt kwarg is
-  `system_prompt`, not `prompt`). Conversation memory is an `InMemorySaver`
-  checkpointer keyed by `thread_id` — passing the same `thread_id` across
-  `agent/run.py`'s `ask()` calls continues that conversation.
+- **`agent/graph.py`** builds a `langgraph-supervisor` root agent
+  (`create_supervisor`) that delegates to two specialist sub-agents, each
+  built via `langchain.agents.create_agent` (not
+  `langgraph.prebuilt.create_react_agent`, which this project migrated
+  away from mid-build after it was deprecated in favor of the former):
+  `agent/stats_agent.py` wraps `FASTF1_TOOLS` for factual/numeric
+  questions, `agent/narrative_agent.py` wraps `RAG_TOOLS` for "why"/
+  "what happened" questions. Each specialist needs a unique `name=` on
+  `create_agent(...)` — `create_supervisor` uses it to build a
+  `transfer_to_<name>` handoff tool per agent and raises if any two
+  agents share a name. **`create_supervisor` must be called with
+  `output_mode="full_history"`** — the default (`"last_message"`) only
+  passes each specialist's final summarized answer back up, not its tool
+  calls, which silently breaks `agent/citations.py` and `agent/cost.py`
+  (both scan `result["messages"]` for specific tool/AI message shapes,
+  and both degrade to empty/zero rather than erroring on a miss — this is
+  the kind of failure you won't notice without checking `citations`
+  actually comes back non-empty on a live query). Conversation memory is
+  an `InMemorySaver` checkpointer attached at `.compile(checkpointer=...)`
+  on the *supervisor* graph, not the individual specialists — passing the
+  same `thread_id` across `agent/run.py`'s `ask()` calls continues that
+  conversation.
+- **Supervisor routing isn't guaranteed by tool availability alone.**
+  Early testing showed the supervisor would sometimes answer a "why did X
+  matter" sub-question directly from `stats_agent`'s numbers instead of
+  calling `narrative_agent`, even with an explicit routing example in the
+  prompt — LLM tool-routing is probabilistic, and rich enough intermediate
+  data makes the model more confident it doesn't need another hop. Fixed
+  by making the supervisor prompt explicitly forbid answering "why"/"what
+  happened" content from `stats_agent`'s data alone.
+- **`tools/rag_tools.py`'s lazy retriever singleton needed a lock.** A
+  supervisor can issue parallel tool calls within one turn (e.g. two
+  `search_race_recaps` calls for two sub-queries), and two threads racing
+  through `_get_retriever()`'s first `is None` check both tried to
+  construct the Chroma client for the same path at once, raising a
+  `KeyError` inside chromadb's client registry. This never surfaced with
+  the single-agent version because it never had two threads hitting that
+  first-call path simultaneously. Fixed with a `threading.Lock` double-
+  checked lock, the same pattern `app/streamlit_app.py` already uses for
+  its shared cost tracker.
 - **`agent/run.py`**'s `ask(agent, message, thread_id)` is the single entry
   point everything downstream calls. It invokes the agent, extracts the
   answer text (Claude Sonnet 5 returns `content` as a list of
