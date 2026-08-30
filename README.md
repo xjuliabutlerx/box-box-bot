@@ -63,6 +63,22 @@ pip install -e .
 cp .env.example .env  # then fill in ANTHROPIC_API_KEY and LANGSMITH_API_KEY
 ```
 
+## Tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest tests/
+```
+
+53 tests covering every layer except the Streamlit app itself (which is
+verified manually, by driving it in a real browser — see Failure modes
+below for why that mattered). Every `fastf1`/`Ergast` and `ChatAnthropic`
+call is mocked, so the suite runs in about a second with no network calls,
+no Anthropic spend, and no `ANTHROPIC_API_KEY` required — the one
+exception is `fastembed`'s local model in `test_embeddings.py`, which
+needs network access only for its one-time download if it isn't already
+cached.
+
 ## Data access layer
 
 `box_box_bot.data.fastf1_client` currently exposes:

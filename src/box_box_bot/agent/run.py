@@ -1,5 +1,12 @@
 from box_box_bot.agent.citations import extract_citations, filter_citations_by_answer
 from box_box_bot.agent.cost import estimate_cost
+from box_box_bot.agent.topic_gate import check_topic
+
+OFF_TOPIC_MESSAGE = (
+    "I can only help with Formula 1 questions - standings, race results, "
+    "lap times, or the story behind a season. Try asking about a race or "
+    "championship instead!"
+)
 
 def _extract_text(content) -> str:
     if isinstance(content, str):
@@ -7,6 +14,14 @@ def _extract_text(content) -> str:
     return "".join(block["text"] for block in content if isinstance(block, dict) and block.get("type") == "text")
 
 def ask(agent, message: str, thread_id: str) -> dict:
+    gate = check_topic(message)
+    if not gate["on_topic"]:
+        return {
+            "answer": OFF_TOPIC_MESSAGE,
+            "citations": [],
+            "usage": {"input_tokens": 0, "output_tokens": 0, "cost_usd": gate["cost_usd"]},
+        }
+
     config = {"configurable": {"thread_id": thread_id}}
     result = agent.invoke({"messages": [{"role": "user", "content": message}]}, config)
 
