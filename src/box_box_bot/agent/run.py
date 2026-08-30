@@ -1,4 +1,5 @@
 from box_box_bot.agent.citations import extract_citations, filter_citations_by_answer
+from box_box_bot.agent.cost import estimate_cost
 
 def _extract_text(content) -> str:
     if isinstance(content, str):
@@ -15,4 +16,5 @@ def ask(agent, message: str, thread_id: str) -> dict:
     return {
         "answer": answer,
         "citations": filter_citations_by_answer(candidates, answer),
+        "usage": estimate_cost(result["messages"]),
     }
