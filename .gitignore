@@ -4,3 +4,29 @@
 
 # LangGraph
 .langgraph_api/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# Virtual environments
+venv/
+.venv/
+
+# Secrets / env
+.env
+.env.local
+
+# fastf1 cache (large binary cache files, regenerate locally)
+data/cache/
+
+# Vector store persistence
+data/vectorstore/
+data/chroma/
+
+# OS
+.DS_Store
