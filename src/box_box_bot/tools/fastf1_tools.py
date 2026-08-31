@@ -62,9 +62,68 @@ def get_fastest_laps(season:int, round: int | str, session_type: str = "R", top_
     data = fastf1_client.get_fastest_laps(season, round, session_type, top_n)
     return json.dumps(data, default=str)
 
+@tool(parse_docstring=True)
+def get_season_schedule(season: int) -> str:
+    """Get the race calendar for a season: round number, country, location, event name, date, and format (conventional or sprint weekend).
+
+    Use this to answer questions about which races are on the calendar, when a race takes place, or which race a round number refers to. Excludes pre-season testing.
+
+    Args:
+        season: The four-digit F1 season year, e.g. 2026
+    """
+    data = fastf1_client.get_season_schedule(season)
+    return json.dumps(data, default=str)
+
+@tool(parse_docstring=True)
+def get_tire_strategy(season: int, round: int | str, session_type: str = "R") -> str:
+    """Get the tire strategy for every driver for a particular session.
+
+    Use this to answer questions about why a race result occured or when evaluating a driver's performance.
+
+    Args:
+        season: The four-digit F1 season year, e.g. 2023
+        round: Race round number within the season (e.g. 4), or the race name if you're not sure of the round number (e.g. "Bahrain", "Monaco", "Emilia Romagna Grand Prix") - this is fuzzy-matched against each event's country/location/name. Prefer passing the name over guessing a round number you aren't certain of.
+        session_type: The F1 session type. One of 'FP1', 'FP2', 'FP3' (practice), 'Q' (qualifying), 'R' (race), 'S' (sprint race). Sprint weekends also have a session that sets the sprint grid: pass 'SS' for 2023 events or 'SQ' for 2024+ events.
+    """
+    data = fastf1_client.get_tire_strategy(season, round, session_type)
+    return json.dumps(data, default=str)
+
+@tool(parse_docstring=True)
+def get_race_control_messages(season: int, round: int | str, session_type: str = "R", category: str = "All") -> str:
+    """Get race control messages for a session.
+
+    Use this to answer any questions about flags, safety cars, and penalties during a session.
+
+    Args:
+        season: The four-digit F1 season year, e.g. 2023
+        round: Race round number within the season (e.g. 4), or the race name if you're not sure of the round number (e.g. "Bahrain", "Monaco", "Emilia Romagna Grand Prix") - this is fuzzy-matched against each event's country/location/name. Prefer passing the name over guessing a round number you aren't certain of.
+        session_type: The F1 session type. One of 'FP1', 'FP2', 'FP3' (practice), 'Q' (qualifying), 'R' (race), 'S' (sprint race). Sprint weekends also have a session that sets the sprint grid: pass 'SS' for 2023 events or 'SQ' for 2024+ events.
+        category: The type of messages to receive: 'Other' (general messages, notes, and penalties), 'Flag', 'SafetyCar', or 'All' for every message.
+    """
+    data = fastf1_client.get_race_control_messages(season, round, session_type, category)
+    return json.dumps(data, default=str)
+
+@tool(parse_docstring=True)
+def get_weather(season: int, round: int | str, session_type: str = "R") -> str:
+    """Get the weather data by roughly every minute for a session.
+
+    Use this to answer questions about whether a race was hot or cold, if there was rain fall, or when evaluating tire strategy.
+
+    Args:
+        season: The four-digit F1 season year, e.g. 2023
+        round: Race round number within the season (e.g. 4), or the race name if you're not sure of the round number (e.g. "Bahrain", "Monaco", "Emilia Romagna Grand Prix") - this is fuzzy-matched against each event's country/location/name. Prefer passing the name over guessing a round number you aren't certain of.
+        session_type: The F1 session type. One of 'FP1', 'FP2', 'FP3' (practice), 'Q' (qualifying), 'R' (race), 'S' (sprint race). Sprint weekends also have a session that sets the sprint grid: pass 'SS' for 2023 events or 'SQ' for 2024+ events.
+    """
+    data = fastf1_client.get_weather_for_session(season, round, session_type)
+    return json.dumps(data, default=str)
+
 FASTF1_TOOLS = [
     get_driver_standings,
     get_constructor_standings,
     get_race_results,
-    get_fastest_laps
+    get_fastest_laps,
+    get_season_schedule,
+    get_tire_strategy,
+    get_race_control_messages,
+    get_weather
 ]

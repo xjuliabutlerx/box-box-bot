@@ -8,16 +8,24 @@ from box_box_bot.tools.fastf1_tools import (
     get_constructor_standings,
     get_driver_standings,
     get_fastest_laps,
+    get_race_control_messages,
     get_race_results,
+    get_season_schedule,
+    get_tire_strategy,
+    get_weather,
 )
 
 
-def test_all_four_tools_are_registered():
+def test_all_eight_tools_are_registered():
     assert {t.name for t in FASTF1_TOOLS} == {
         "get_driver_standings",
         "get_constructor_standings",
         "get_race_results",
         "get_fastest_laps",
+        "get_season_schedule",
+        "get_tire_strategy",
+        "get_race_control_messages",
+        "get_weather",
     }
 
 
@@ -89,3 +97,78 @@ def test_get_fastest_laps_passes_all_args_through():
 
     mock_fn.assert_called_once_with(2026, 4, "S", 3)
     assert json.loads(result) == fake_data
+
+
+def test_get_season_schedule_calls_data_layer_and_returns_json():
+    fake_data = [
+        {
+            "RoundNumber": 4,
+            "Country": "Bahrain",
+            "Location": "Sakhir",
+            "EventName": "Bahrain Grand Prix",
+            "EventFormat": "conventional",
+            "EventDate": "2025-04-13",
+        }
+    ]
+    with patch("box_box_bot.tools.fastf1_tools.fastf1_client.get_season_schedule", return_value=fake_data) as mock_fn:
+        result = get_season_schedule.invoke({"season": 2025})
+
+    mock_fn.assert_called_once_with(2025)
+    assert json.loads(result) == fake_data
+
+
+def test_get_tire_strategy_calls_data_layer_and_returns_json():
+    fake_data = [{"Driver": "VER", "Stint": 1, "Compound": "SOFT", "StintLength": 20}]
+    with patch("box_box_bot.tools.fastf1_tools.fastf1_client.get_tire_strategy", return_value=fake_data) as mock_fn:
+        result = get_tire_strategy.invoke({"season": 2025, "round": 4})
+
+    mock_fn.assert_called_once_with(2025, 4, "R")
+    assert json.loads(result) == fake_data
+
+
+def test_get_tire_strategy_accepts_race_name_and_session_type():
+    fake_data = [{"Driver": "VER", "Stint": 1, "Compound": "SOFT", "StintLength": 10}]
+    with patch("box_box_bot.tools.fastf1_tools.fastf1_client.get_tire_strategy", return_value=fake_data) as mock_fn:
+        get_tire_strategy.invoke({"season": 2025, "round": "Bahrain", "session_type": "Q"})
+
+    mock_fn.assert_called_once_with(2025, "Bahrain", "Q")
+
+
+def test_get_race_control_messages_calls_data_layer_and_returns_json():
+    fake_data = [{"Category": "Flag", "Message": "YELLOW FLAG"}]
+    with patch(
+        "box_box_bot.tools.fastf1_tools.fastf1_client.get_race_control_messages", return_value=fake_data
+    ) as mock_fn:
+        result = get_race_control_messages.invoke({"season": 2025, "round": 4})
+
+    mock_fn.assert_called_once_with(2025, 4, "R", "All")
+    assert json.loads(result) == fake_data
+
+
+def test_get_race_control_messages_passes_category_through():
+    fake_data = [{"Category": "SafetyCar", "Message": "SAFETY CAR DEPLOYED"}]
+    with patch(
+        "box_box_bot.tools.fastf1_tools.fastf1_client.get_race_control_messages", return_value=fake_data
+    ) as mock_fn:
+        get_race_control_messages.invoke(
+            {"season": 2025, "round": 4, "session_type": "R", "category": "SafetyCar"}
+        )
+
+    mock_fn.assert_called_once_with(2025, 4, "R", "SafetyCar")
+
+
+def test_get_weather_calls_data_layer_and_returns_json():
+    fake_data = [{"Time": "0 days 00:01:00", "AirTemp": 24.5, "Rainfall": False}]
+    with patch("box_box_bot.tools.fastf1_tools.fastf1_client.get_weather_for_session", return_value=fake_data) as mock_fn:
+        result = get_weather.invoke({"season": 2025, "round": 4})
+
+    mock_fn.assert_called_once_with(2025, 4, "R")
+    assert json.loads(result) == fake_data
+
+
+def test_get_weather_accepts_race_name_and_session_type():
+    fake_data = [{"AirTemp": 20.0}]
+    with patch("box_box_bot.tools.fastf1_tools.fastf1_client.get_weather_for_session", return_value=fake_data) as mock_fn:
+        get_weather.invoke({"season": 2025, "round": "Monaco", "session_type": "Q"})
+
+    mock_fn.assert_called_once_with(2025, "Monaco", "Q")

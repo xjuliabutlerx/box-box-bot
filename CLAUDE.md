@@ -62,13 +62,23 @@ data/fastf1_client.py  -->  tools/*.py  -->  agent/{stats,narrative,predictor}_a
   directly. It returns plain `list[dict]` (via `.to_dict(orient="records")`
   on pandas output). Championship standings come from `fastf1.ergast`
   (session objects don't carry cumulative state); race results/lap data
-  come from `fastf1.get_session(...).load()`. `get_race_results` and
-  `get_fastest_laps` take `round: int | str` on purpose — `fastf1.get_session`
-  already fuzzy-matches a string round against each event's
-  country/location/name, so the model can pass a race name directly
-  instead of recalling/guessing a round number. A stricter `int`-only
-  signature once caused the model to hallucinate the wrong round for a
-  named race (see README's Failure modes).
+  come from `fastf1.get_session(...).load()`. `get_race_results`,
+  `get_fastest_laps`, `get_tire_strategy`, `get_race_control_messages`,
+  and `get_weather_for_session` take `round: int | str` on purpose —
+  `fastf1.get_session` already fuzzy-matches a string round against each
+  event's country/location/name, so the model can pass a race name
+  directly instead of recalling/guessing a round number. A stricter
+  `int`-only signature once caused the model to hallucinate the wrong
+  round for a named race (see README's Failure modes). **Every one of
+  those five functions must run `round` through `_normalize_round()`
+  before calling `fastf1.get_session`** — fastf1 only parses `round` as a
+  round *number* when it's an `int`; a `str` round always goes through
+  fuzzy name-matching instead, so a JSON string like `"7"` (which the
+  model does sometimes emit even though the tool schema says `int`)
+  can't match any race name and silently falls back to the season's
+  first race rather than raising. This is the same class of bug as the
+  hallucination above but in the opposite direction — also see README's
+  Failure modes.
 - **`tools/`** wraps both `data/fastf1_client.py` and `rag/retriever.py` as
   LangChain `@tool(parse_docstring=True)` functions. Every tool output goes
   through `json.dumps(..., default=str)` — pandas output routinely contains

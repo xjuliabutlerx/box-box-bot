@@ -103,10 +103,11 @@ cached.
 - `get_constructor_standings(season, round=None)`
 - `get_race_results(season, round)`
 - `get_fastest_laps(season, round, session_type="R", top_n=5)`
+- `get_season_schedule(season)`
 
 Standings come from `fastf1.ergast` (session objects don't carry cumulative
-championship state); race results and lap data come from
-`fastf1.get_session(...).load()`.
+championship state); race results, lap data, and the race calendar come
+from `fastf1.get_session(...).load()` and `fastf1.get_event_schedule(...)`.
 
 ## RAG layer
 
@@ -448,3 +449,23 @@ code rather than reading it — a reminder that "the code looks right" and
   fixed by returning `[SystemMessage(...)] + state["messages"]`,
   matching exactly what `create_react_agent` itself does internally for
   a plain string prompt.
+- **A numeric string round silently resolved to the wrong race.**
+  Widening `round` to `int | str` fixed the hallucination bug above, but
+  introduced a narrower regression: `fastf1.get_session` only treats
+  `round` as a round *number* when it's an `int` — a `str` round is
+  *always* fuzzy-matched against each event's country/location/name
+  instead, never parsed as a number. When the model passed `round` as a
+  JSON string (e.g. `"7"` instead of `7`), fastf1 couldn't fuzzy-match a
+  bare digit against any race name, and rather than raising, it silently
+  fell back to the season's first race — `round="7"` and `round="1"`
+  both resolved to the same (wrong) event. Caught when a Barcelona
+  (round 7) question returned Australian Grand Prix (round 1) results;
+  LangSmith showed the *tool call* used the correct round, so the bug had
+  to be in how that round value was resolved downstream, not in routing
+  or prompting. Fixed with `_normalize_round()` in `fastf1_client.py`:
+  any string round that's purely digits is converted to `int` before
+  reaching `fastf1.get_session`, so only genuine race names still go
+  through fuzzy matching. Applied at every `fastf1.get_session` call site
+  (`get_race_results`, `get_fastest_laps`, `get_tire_strategy`,
+  `get_race_control_messages`, `get_weather_for_session`), not just the
+  one that surfaced it.
