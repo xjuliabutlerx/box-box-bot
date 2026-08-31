@@ -60,6 +60,32 @@ def test_check_topic_sends_system_prompt_and_user_message():
     assert sent_messages[1] == {"role": "user", "content": "Who won Monza?"}
 
 
+def test_check_topic_weaves_recent_context_into_user_message():
+    fake_model = MagicMock()
+    fake_model.invoke.return_value = _fake_response("ontopic")
+
+    with patch("box_box_bot.agent.topic_gate._get_gate_model", return_value=fake_model):
+        check_topic("yes", recent_context="Want to know about the 2025 title fight?")
+
+    sent_messages = fake_model.invoke.call_args[0][0]
+    user_content = sent_messages[1]["content"]
+    assert "Want to know about the 2025 title fight?" in user_content
+    assert "yes" in user_content
+
+
+def test_check_topic_omits_context_block_when_none_given():
+    # Regression guard: no recent_context must leave the user content
+    # exactly as before this feature was added.
+    fake_model = MagicMock()
+    fake_model.invoke.return_value = _fake_response("ontopic")
+
+    with patch("box_box_bot.agent.topic_gate._get_gate_model", return_value=fake_model):
+        check_topic("Who won Monza?", recent_context=None)
+
+    sent_messages = fake_model.invoke.call_args[0][0]
+    assert sent_messages[1] == {"role": "user", "content": "Who won Monza?"}
+
+
 def test_check_topic_cost_uses_haiku_pricing():
     fake_model = MagicMock()
     fake_model.invoke.return_value = _fake_response("ontopic", input_tokens=1_000_000, output_tokens=0)

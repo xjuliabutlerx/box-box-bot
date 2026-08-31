@@ -14,7 +14,12 @@ def _extract_text(content) -> str:
     return "".join(block["text"] for block in content if isinstance(block, dict) and block.get("type") == "text")
 
 def ask(agent, message: str, thread_id: str) -> dict:
-    gate = check_topic(message)
+    config = {"configurable": {"thread_id": thread_id}}
+
+    prior_messages = agent.get_state(config).values.get("messages", [])
+    recent_context = _extract_text(prior_messages[-1].content) if prior_messages else None
+
+    gate = check_topic(message, recent_context=recent_context)
     if not gate["on_topic"]:
         return {
             "answer": OFF_TOPIC_MESSAGE,
@@ -22,7 +27,6 @@ def ask(agent, message: str, thread_id: str) -> dict:
             "usage": {"input_tokens": 0, "output_tokens": 0, "cost_usd": gate["cost_usd"]},
         }
 
-    config = {"configurable": {"thread_id": thread_id}}
     result = agent.invoke({"messages": [{"role": "user", "content": message}]}, config)
 
     answer = _extract_text(result["messages"][-1].content)

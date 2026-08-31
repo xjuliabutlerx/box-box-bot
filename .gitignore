@@ -24,6 +24,9 @@ venv/
 # fastf1 cache (large binary cache files, regenerate locally)
 data/cache/
 
+# local testing
+local/
+
 # Vector store persistence
 data/vectorstore/
 data/chroma/
