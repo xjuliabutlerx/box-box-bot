@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock, patch
 
+from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
 from box_box_bot.agent import graph
@@ -23,7 +24,42 @@ def test_build_agent_uses_full_history_output_mode():
         assert kwargs["output_mode"] == "full_history"
 
 
-def test_build_agent_passes_both_specialists():
+def test_build_agent_uses_a_callable_prompt_not_a_static_string():
+    # Regression test: a static SUPERVISOR_PROMPT string would go stale
+    # the longer the cached agent's server process stays up (it never
+    # restates today's date). create_supervisor's `prompt` accepts a
+    # callable, computed fresh on every model call - must not regress to
+    # passing the raw string directly.
+    with (
+        patch.object(graph, "ChatAnthropic"),
+        patch.object(graph, "create_supervisor") as mock_create_supervisor,
+    ):
+        mock_create_supervisor.return_value = MagicMock()
+
+        graph.build_agent()
+
+        _, kwargs = mock_create_supervisor.call_args
+        assert callable(kwargs["prompt"])
+
+
+def test_supervisor_prompt_preserves_the_users_message():
+    # Regression test: create_react_agent's callable `prompt` must return
+    # the FULL message list (system message + existing conversation), not
+    # just the system prompt text - returning a bare string once replaced
+    # the entire model input, so the user's own message never reached the
+    # model at all (it just introduced itself instead of answering).
+    human_message = HumanMessage(content="What are the current standings?")
+    state = {"messages": [human_message]}
+
+    result = graph._supervisor_prompt(state)
+
+    assert isinstance(result[0], SystemMessage)
+    assert "Today's date is" in result[0].content
+    assert graph.SUPERVISOR_PROMPT in result[0].content
+    assert result[1] is human_message
+
+
+def test_build_agent_passes_all_specialists():
     with (
         patch.object(graph, "ChatAnthropic"),
         patch.object(graph, "create_supervisor") as mock_create_supervisor,
@@ -34,7 +70,7 @@ def test_build_agent_passes_both_specialists():
 
         (agents,), _ = mock_create_supervisor.call_args
         names = {agent.name for agent in agents}
-        assert names == {"stats_agent", "narrative_agent"}
+        assert names == {"stats_agent", "narrative_agent", "predictor_agent"}
 
 
 def test_build_agent_compiles_with_checkpointer():

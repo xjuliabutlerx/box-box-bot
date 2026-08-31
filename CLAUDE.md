@@ -51,11 +51,11 @@ and the intent is that any layer can be swapped without touching the ones
 above it:
 
 ```
-data/fastf1_client.py  -->  tools/*.py  -->  agent/{stats,narrative}_agent.py  -->  agent/graph.py  -->  app/streamlit_app.py
-   (fastf1/Ergast)         (@tool wrappers)      (create_agent specialists)      (supervisor)        (chat UI)
-                                                     ^
-                              rag/{embeddings,ingest,retriever}.py
-                                        (Chroma + fastembed)
+data/fastf1_client.py  -->  tools/*.py  -->  agent/{stats,narrative,predictor}_agent.py  -->  agent/graph.py  -->  app/streamlit_app.py
+   (fastf1/Ergast)         (@tool wrappers)         (create_agent specialists)             (supervisor)        (chat UI)
+                                                     ^                        ^
+                              rag/{embeddings,ingest,retriever}.py   predictor/{model,features,predict}.py
+                                        (Chroma + fastembed)                (torch)
 ```
 
 - **`data/fastf1_client.py`** is the *only* module that imports `fastf1`
@@ -80,13 +80,15 @@ data/fastf1_client.py  -->  tools/*.py  -->  agent/{stats,narrative}_agent.py  -
   `agent/citations.py` possible later; nothing about citations is bolted on
   after the fact.
 - **`agent/graph.py`** builds a `langgraph-supervisor` root agent
-  (`create_supervisor`) that delegates to two specialist sub-agents, each
+  (`create_supervisor`) that delegates to three specialist sub-agents, each
   built via `langchain.agents.create_agent` (not
   `langgraph.prebuilt.create_react_agent`, which this project migrated
   away from mid-build after it was deprecated in favor of the former):
   `agent/stats_agent.py` wraps `FASTF1_TOOLS` for factual/numeric
   questions, `agent/narrative_agent.py` wraps `RAG_TOOLS` for "why"/
-  "what happened" questions. Each specialist needs a unique `name=` on
+  "what happened" questions, `agent/predictor_agent.py` wraps
+  `PREDICTOR_TOOLS` for forward-looking "who will win" model
+  predictions. Each specialist needs a unique `name=` on
   `create_agent(...)` — `create_supervisor` uses it to build a
   `transfer_to_<name>` handoff tool per agent and raises if any two
   agents share a name. **`create_supervisor` must be called with
@@ -119,6 +121,48 @@ data/fastf1_client.py  -->  tools/*.py  -->  agent/{stats,narrative}_agent.py  -
   first-call path simultaneously. Fixed with a `threading.Lock` double-
   checked lock, the same pattern `app/streamlit_app.py` already uses for
   its shared cost tracker.
+- **`SUPERVISOR_PROMPT` must state that its final message is the only
+  thing the user sees.** Without that, the supervisor sometimes ended a
+  turn with something like "let me know if you'd like a deeper dive..."
+  instead of restating a specialist's actual answer — `run.py`'s `ask()`
+  only returns `result["messages"][-1]`, so if the supervisor doesn't
+  repeat the substance, the user gets a non-answer even though the
+  correct data is sitting earlier in the (fully preserved,
+  `full_history`) message trace. Fixed by adding an explicit instruction
+  to the prompt: restate the specialist's actual content, don't just
+  reference that it answered.
+- **`predictor/features.py` reproduces the ported model's training
+  pipeline exactly, quirks included** (e.g. `FormRatio`'s
+  per-driver-vs-team-total unit mismatch, `RoundsRemaining`'s
+  `total_rounds - (Round - 1)` off-by-one for an in-progress season) —
+  the model's weights are calibrated to those exact numeric
+  distributions, so "fixing" a formula during the port would silently
+  miscalibrate predictions rather than improve them. `predict.py` keeps
+  a lazy, thread-safe, in-process cache of the built feature table keyed
+  by season (same lock pattern as `rag_tools.py` above) since building it
+  means walking every completed round of a season through fastf1.
+- **`agent/time_context.py::current_date_context()`** states today's
+  date to every agent — LLMs have no innate sense of "now," and without
+  this, "this year"/"the current season" silently resolved to whatever
+  year the model leaned toward from training, not the real one. It must
+  be recomputed on every model call, never baked into a static prompt
+  string at `build_agent()` time, since the compiled agent is cached for
+  the life of the server process (`@st.cache_resource` in
+  `app/streamlit_app.py`) and a baked-in date would just go stale on a
+  different schedule than the bug it fixes. Wired in two different ways
+  because the three `create_agent`-based specialists and the
+  `create_supervisor`-based supervisor don't share a prompt mechanism:
+  specialists use `langchain.agents.middleware.dynamic_prompt` (a
+  decorated function returning the system prompt *string*, passed via
+  `middleware=[...]`); the supervisor's `create_supervisor(prompt=...)`
+  goes through `langgraph.prebuilt.create_react_agent` underneath, whose
+  callable `prompt` contract is different and easy to get wrong: it must
+  return the *entire* message list (`[SystemMessage(...)] +
+  state["messages"]`), not just the system prompt text. Returning a bare
+  string once replaced the model's entire input with just the system
+  prompt, silently dropping the user's actual message — the supervisor
+  responded as if introducing itself rather than answering, caught only
+  by asking it a real question and reading the answer.
 - **`agent/run.py`**'s `ask(agent, message, thread_id)` is the single entry
   point everything downstream calls. It invokes the agent, extracts the
   answer text (Claude Sonnet 5 returns `content` as a list of

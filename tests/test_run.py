@@ -17,8 +17,18 @@ def _ai_message(content, input_tokens: int = 100, output_tokens: int = 10) -> AI
     )
 
 
+def _fake_agent(invoke_return=None, prior_messages=None):
+    agent = MagicMock()
+    if invoke_return is not None:
+        agent.invoke.return_value = invoke_return
+    # agent.get_state(config).values is a real dict, matching what
+    # LangGraph's InMemorySaver actually returns ({} on a fresh thread).
+    agent.get_state.return_value.values = {"messages": prior_messages} if prior_messages else {}
+    return agent
+
+
 def test_ask_short_circuits_when_off_topic():
-    fake_agent = MagicMock()
+    fake_agent = _fake_agent()
 
     with patch("box_box_bot.agent.run.check_topic", return_value={"on_topic": False, "cost_usd": 0.0002}):
         result = ask(fake_agent, "give me a sorting algorithm", "thread-1")
@@ -30,13 +40,14 @@ def test_ask_short_circuits_when_off_topic():
 
 
 def test_ask_invokes_agent_and_extracts_answer_when_on_topic():
-    fake_agent = MagicMock()
-    fake_agent.invoke.return_value = {
-        "messages": [
-            HumanMessage(content="Who won Bahrain?"),
-            _ai_message("Piastri won the Bahrain Grand Prix."),
-        ]
-    }
+    fake_agent = _fake_agent(
+        {
+            "messages": [
+                HumanMessage(content="Who won Bahrain?"),
+                _ai_message("Piastri won the Bahrain Grand Prix."),
+            ]
+        }
+    )
 
     with patch("box_box_bot.agent.run.check_topic", return_value={"on_topic": True, "cost_usd": 0.0}):
         result = ask(fake_agent, "Who won Bahrain?", "thread-1")
@@ -48,8 +59,7 @@ def test_ask_invokes_agent_and_extracts_answer_when_on_topic():
 
 
 def test_ask_passes_thread_id_through_config():
-    fake_agent = MagicMock()
-    fake_agent.invoke.return_value = {"messages": [HumanMessage(content="hi"), _ai_message("hello")]}
+    fake_agent = _fake_agent({"messages": [HumanMessage(content="hi"), _ai_message("hello")]})
 
     with patch("box_box_bot.agent.run.check_topic", return_value={"on_topic": True, "cost_usd": 0.0}):
         ask(fake_agent, "hi", "my-thread-id")
@@ -59,19 +69,20 @@ def test_ask_passes_thread_id_through_config():
 
 
 def test_ask_extracts_citations_from_tool_results():
-    fake_agent = MagicMock()
     tool_msg = ToolMessage(
         content="[Source: Bahrain Grand Prix (2025)]\nPiastri won.",
         tool_call_id="c1",
         name="search_race_recaps",
     )
-    fake_agent.invoke.return_value = {
-        "messages": [
-            HumanMessage(content="Why did Bahrain matter?"),
-            tool_msg,
-            _ai_message("Piastri won in Bahrain, taking the championship lead."),
-        ]
-    }
+    fake_agent = _fake_agent(
+        {
+            "messages": [
+                HumanMessage(content="Why did Bahrain matter?"),
+                tool_msg,
+                _ai_message("Piastri won in Bahrain, taking the championship lead."),
+            ]
+        }
+    )
 
     with patch("box_box_bot.agent.run.check_topic", return_value={"on_topic": True, "cost_usd": 0.0}):
         result = ask(fake_agent, "Why did Bahrain matter?", "thread-1")
@@ -82,20 +93,48 @@ def test_ask_extracts_citations_from_tool_results():
 def test_ask_extracts_text_from_list_content_with_thinking_blocks():
     # Claude Sonnet 5 returns content as a list of thinking/text blocks
     # when tools were used, not a plain string.
-    fake_agent = MagicMock()
-    fake_agent.invoke.return_value = {
-        "messages": [
-            HumanMessage(content="Who won?"),
-            _ai_message(
-                [
-                    {"type": "thinking", "thinking": "internal reasoning..."},
-                    {"type": "text", "text": "Piastri won the Bahrain Grand Prix."},
-                ]
-            ),
-        ]
-    }
+    fake_agent = _fake_agent(
+        {
+            "messages": [
+                HumanMessage(content="Who won?"),
+                _ai_message(
+                    [
+                        {"type": "thinking", "thinking": "internal reasoning..."},
+                        {"type": "text", "text": "Piastri won the Bahrain Grand Prix."},
+                    ]
+                ),
+            ]
+        }
+    )
 
     with patch("box_box_bot.agent.run.check_topic", return_value={"on_topic": True, "cost_usd": 0.0}):
         result = ask(fake_agent, "Who won?", "thread-1")
 
     assert result["answer"] == "Piastri won the Bahrain Grand Prix."
+
+
+def test_ask_passes_no_context_on_fresh_thread():
+    fake_agent = _fake_agent({"messages": [HumanMessage(content="hi"), _ai_message("hello")]})
+
+    with patch("box_box_bot.agent.run.check_topic", return_value={"on_topic": True, "cost_usd": 0.0}) as mock_check:
+        ask(fake_agent, "hi", "brand-new-thread")
+
+    mock_check.assert_called_once_with("hi", recent_context=None)
+
+
+def test_ask_passes_prior_reply_as_recent_context():
+    prior_messages = [
+        HumanMessage(content="Tell me about the 2025 title fight"),
+        _ai_message("It came down to the last race between Norris and Verstappen."),
+    ]
+    fake_agent = _fake_agent(
+        {"messages": prior_messages + [HumanMessage(content="yes"), _ai_message("Sure, here's more detail...")]},
+        prior_messages=prior_messages,
+    )
+
+    with patch("box_box_bot.agent.run.check_topic", return_value={"on_topic": True, "cost_usd": 0.0}) as mock_check:
+        ask(fake_agent, "yes", "existing-thread")
+
+    mock_check.assert_called_once_with(
+        "yes", recent_context="It came down to the last race between Norris and Verstappen."
+    )

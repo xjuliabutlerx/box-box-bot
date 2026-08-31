@@ -60,6 +60,17 @@ def get_race_results(season: int, round: int | str) -> list[dict]:
     return session.results.to_dict(orient="records")
 
 
+def get_season_schedule(season: int) -> list[dict]:
+    """Race calendar for a season: round number, event name, and date.
+
+    Excludes pre-season testing. Used to find the latest completed round
+    and the season's total round count for an in-progress season.
+    """
+    _ensure_cache()
+    schedule = fastf1.get_event_schedule(season, include_testing=False)
+    return schedule[["RoundNumber", "EventName", "EventDate"]].to_dict(orient="records")
+
+
 def get_fastest_laps(season: int, round: int | str, session_type: str = "R", top_n: int = 5) -> list[dict]:
     """Each driver's single fastest lap in a session, sorted quickest first.
 
