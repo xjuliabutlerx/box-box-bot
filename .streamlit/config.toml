@@ -1,0 +1,15 @@
+[theme]
+base = "dark"
+primaryColor = "#E10600"
+backgroundColor = "#15151E"
+secondaryBackgroundColor = "#1F1F27"
+textColor = "#FFFFFF"
+borderColor = "#38383F"
+redColor = "#E10600"
+
+font = "'Titillium Web':https://fonts.googleapis.com/css2?family=Titillium+Web:wght@400;600;700&display=swap"
+headingFont = "'Titillium Web':https://fonts.googleapis.com/css2?family=Titillium+Web:wght@600;700&display=swap"
+
+baseRadius = "small"
+showWidgetBorder = true
+baseFontSize = 18

@@ -11,7 +11,9 @@ except Exception:
 from box_box_bot.agent.graph import build_agent
 from box_box_bot.agent.run import ask
 
-st.set_page_config(page_title="BoxBoxBot", page_icon="🏎️")
+ASSISTANT_AVATAR = "🏁"
+
+st.set_page_config(page_title="BoxBoxBot", page_icon="🏁")
 st.title("🏎️ BoxBoxBot")
 st.caption(
     "An F1 chatbot grounded in live fastf1 data and race-recap RAG. "
@@ -49,7 +51,8 @@ if "message_count" not in st.session_state:
     st.session_state.message_count = 0
 
 for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
+    avatar = ASSISTANT_AVATAR if message["role"] == "assistant" else None
+    with st.chat_message(message["role"], avatar=avatar):
         st.markdown(message["content"])
         if message.get("citations"):
             sources = ", ".join(f"{c['race_name']} ({c['season']})" for c in message["citations"])
@@ -76,7 +79,7 @@ if user_input := st.chat_input(
     with st.chat_message("user"):
         st.markdown(user_input)
 
-    with st.chat_message("assistant"):
+    with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
         with st.spinner("Thinking..."):
             result = ask(get_agent(), user_input, st.session_state.thread_id)
             st.session_state.last_turn_cost_usd = result["usage"]["cost_usd"]
