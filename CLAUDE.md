@@ -78,7 +78,19 @@ data/fastf1_client.py  -->  tools/*.py  -->  agent/{stats,narrative,predictor}_a
   can't match any race name and silently falls back to the season's
   first race rather than raising. This is the same class of bug as the
   hallucination above but in the opposite direction — also see README's
-  Failure modes.
+  Failure modes. **`get_all_time_driver_records(top_n)`** is the one
+  function here that doesn't call `fastf1.get_session` at all — it walks
+  every season's *final standings* via `Ergast().get_driver_standings`
+  since 1950 (one call per season; each row already carries that season's
+  `wins` and `position`, so career totals never need per-round data) and
+  caches the result process-lifetime behind a `threading.Lock` — same
+  lazy-singleton shape as `predictor/features.py`'s feature cache, reused
+  here because the walk is the same kind of "expensive once, cheap after"
+  problem. `STATS_SYSTEM_PROMPT` also permits answering *other* all-time
+  F1 trivia this tool doesn't cover (poles, podiums, GOAT debates) from
+  general knowledge, explicitly labeled as such — see README's Failure
+  modes for why this exists (without it, the supervisor had nothing
+  concrete to say and looped through disclaimers instead of answering).
 - **`tools/`** wraps both `data/fastf1_client.py` and `rag/retriever.py` as
   LangChain `@tool(parse_docstring=True)` functions. Every tool output goes
   through `json.dumps(..., default=str)` — pandas output routinely contains

@@ -117,6 +117,18 @@ def get_weather(season: int, round: int | str, session_type: str = "R") -> str:
     data = fastf1_client.get_weather_for_session(season, round, session_type)
     return json.dumps(data, default=str)
 
+@tool(parse_docstring=True)
+def get_all_time_driver_records(top_n: int = 10) -> str:
+    """Get the top F1 drivers of all time by career championships and race wins, aggregated across every season since 1950.
+
+    Use this for career/all-time driver questions - who has won the most championships or races ever, historically the most successful drivers, etc. This is real aggregated data, not an opinion - but it only covers championships and wins; it does not cover poles, podiums, or fastest laps.
+
+    Args:
+        top_n: How many drivers to return, ranked by championships then wins.
+    """
+    data = fastf1_client.get_all_time_driver_records(top_n)
+    return json.dumps(data, default=str)
+
 FASTF1_TOOLS = [
     get_driver_standings,
     get_constructor_standings,
@@ -125,5 +137,6 @@ FASTF1_TOOLS = [
     get_season_schedule,
     get_tire_strategy,
     get_race_control_messages,
-    get_weather
+    get_weather,
+    get_all_time_driver_records,
 ]

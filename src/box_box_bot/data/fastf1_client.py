@@ -9,12 +9,20 @@ but not cumulative standings, so standings go through `fastf1.ergast`
 instead.
 """
 
+import datetime
+import threading
+
 import fastf1
 from fastf1.ergast import Ergast
 
 from box_box_bot.config import FASTF1_CACHE_DIR
 
 _cache_ready = False
+
+FIRST_F1_SEASON = 1950
+
+_all_time_records_cache: list[dict] | None = None
+_all_time_records_lock = threading.Lock()
 
 
 def _ensure_cache() -> None:
@@ -149,3 +157,52 @@ def get_weather_for_session(season: int, round: int | str, session_type: str = "
     session = fastf1.get_session(season, _normalize_round(round), session_type)
     session.load(laps=False, telemetry=False, messages=False)
     return session.weather_data.to_dict(orient="records")
+
+
+def _build_all_time_driver_records() -> list[dict]:
+    """Career wins and championships per driver, aggregated across every
+    F1 season. Ergast has no career-aggregate endpoint, so this walks
+    every season's final standings itself - one call per season (not per
+    round), since each row already carries that season's `wins` count and
+    `position` (1 = that season's champion) alongside a stable `driverId`.
+    Podiums/poles would need per-round data instead and aren't covered.
+    """
+    totals: dict[str, dict] = {}
+    current_year = datetime.date.today().year
+
+    for season in range(FIRST_F1_SEASON, current_year + 1):
+        response = Ergast().get_driver_standings(season=season, round=None)
+        if not response.content:
+            continue
+        for row in response.content[0].to_dict(orient="records"):
+            driver_id = row["driverId"]
+            entry = totals.setdefault(
+                driver_id,
+                {
+                    "driverId": driver_id,
+                    "driverName": f"{row['givenName']} {row['familyName']}",
+                    "totalWins": 0,
+                    "championships": 0,
+                },
+            )
+            entry["totalWins"] += row["wins"]
+            if row["position"] == 1:
+                entry["championships"] += 1
+
+    return sorted(totals.values(), key=lambda entry: (entry["championships"], entry["totalWins"]), reverse=True)
+
+
+def get_all_time_driver_records(top_n: int = 10) -> list[dict]:
+    """Top drivers by career championships and race wins across every F1
+    season (1950-present). Computed once and cached for the life of the
+    process - the underlying walk takes ~one Ergast call per season, so
+    it's too slow to redo on every request but only needs to happen once
+    per server run (mirrors `predictor/features.py`'s feature-table cache).
+    """
+    global _all_time_records_cache
+    _ensure_cache()
+    if _all_time_records_cache is None:
+        with _all_time_records_lock:
+            if _all_time_records_cache is None:
+                _all_time_records_cache = _build_all_time_driver_records()
+    return _all_time_records_cache[:top_n]

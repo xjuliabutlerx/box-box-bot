@@ -41,6 +41,84 @@ def test_get_constructor_standings_calls_ergast_with_season_and_round():
     assert result == [{"position": 1, "constructorName": "McLaren", "points": 640.0}]
 
 
+_ALL_TIME_SEASON_STANDINGS = {
+    2023: [
+        {"position": 1, "wins": 10, "driverId": "driver_a", "givenName": "Driver", "familyName": "A"},
+        {"position": 2, "wins": 5, "driverId": "driver_b", "givenName": "Driver", "familyName": "B"},
+    ],
+    2024: [
+        {"position": 1, "wins": 8, "driverId": "driver_a", "givenName": "Driver", "familyName": "A"},
+        {"position": 2, "wins": 3, "driverId": "driver_b", "givenName": "Driver", "familyName": "B"},
+        {"position": 3, "wins": 1, "driverId": "driver_c", "givenName": "Driver", "familyName": "C"},
+    ],
+    2025: [
+        {"position": 1, "wins": 12, "driverId": "driver_b", "givenName": "Driver", "familyName": "B"},
+        {"position": 2, "wins": 2, "driverId": "driver_a", "givenName": "Driver", "familyName": "A"},
+    ],
+}
+
+
+def _fake_all_time_standings_response(season, round=None):
+    return MagicMock(content=[pd.DataFrame(_ALL_TIME_SEASON_STANDINGS[season])])
+
+
+def test_get_all_time_driver_records_sums_wins_and_counts_championships():
+    fastf1_client._all_time_records_cache = None
+    with (
+        patch("box_box_bot.data.fastf1_client.datetime") as mock_datetime,
+        patch("box_box_bot.data.fastf1_client.FIRST_F1_SEASON", 2023),
+        patch("box_box_bot.data.fastf1_client.Ergast") as mock_ergast_cls,
+        patch("box_box_bot.data.fastf1_client.fastf1"),
+    ):
+        mock_datetime.date.today.return_value.year = 2025
+        mock_ergast_cls.return_value.get_driver_standings.side_effect = _fake_all_time_standings_response
+        result = fastf1_client.get_all_time_driver_records()
+
+    by_id = {row["driverId"]: row for row in result}
+    assert by_id["driver_a"]["championships"] == 2
+    assert by_id["driver_a"]["totalWins"] == 20
+    assert by_id["driver_b"]["championships"] == 1
+    assert by_id["driver_b"]["totalWins"] == 20
+    assert by_id["driver_c"]["championships"] == 0
+    assert by_id["driver_c"]["totalWins"] == 1
+    # driver_a ranks first: same total wins as driver_b, but more championships
+    assert [row["driverId"] for row in result] == ["driver_a", "driver_b", "driver_c"]
+
+
+def test_get_all_time_driver_records_respects_top_n():
+    fastf1_client._all_time_records_cache = None
+    with (
+        patch("box_box_bot.data.fastf1_client.datetime") as mock_datetime,
+        patch("box_box_bot.data.fastf1_client.FIRST_F1_SEASON", 2023),
+        patch("box_box_bot.data.fastf1_client.Ergast") as mock_ergast_cls,
+        patch("box_box_bot.data.fastf1_client.fastf1"),
+    ):
+        mock_datetime.date.today.return_value.year = 2025
+        mock_ergast_cls.return_value.get_driver_standings.side_effect = _fake_all_time_standings_response
+        result = fastf1_client.get_all_time_driver_records(top_n=1)
+
+    assert len(result) == 1
+    assert result[0]["driverId"] == "driver_a"
+
+
+def test_get_all_time_driver_records_caches_across_calls():
+    fastf1_client._all_time_records_cache = None
+    with (
+        patch("box_box_bot.data.fastf1_client.datetime") as mock_datetime,
+        patch("box_box_bot.data.fastf1_client.FIRST_F1_SEASON", 2023),
+        patch("box_box_bot.data.fastf1_client.Ergast") as mock_ergast_cls,
+        patch("box_box_bot.data.fastf1_client.fastf1"),
+    ):
+        mock_datetime.date.today.return_value.year = 2025
+        mock_ergast_cls.return_value.get_driver_standings.side_effect = _fake_all_time_standings_response
+
+        fastf1_client.get_all_time_driver_records()
+        call_count_after_first = mock_ergast_cls.return_value.get_driver_standings.call_count
+        fastf1_client.get_all_time_driver_records()
+
+    assert mock_ergast_cls.return_value.get_driver_standings.call_count == call_count_after_first
+
+
 def test_normalize_round_converts_numeric_string_to_int():
     assert fastf1_client._normalize_round("7") == 7
     assert fastf1_client._normalize_round(" 7 ") == 7

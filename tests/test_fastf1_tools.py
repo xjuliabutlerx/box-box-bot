@@ -5,6 +5,7 @@ import pandas as pd
 
 from box_box_bot.tools.fastf1_tools import (
     FASTF1_TOOLS,
+    get_all_time_driver_records,
     get_constructor_standings,
     get_driver_standings,
     get_fastest_laps,
@@ -16,7 +17,7 @@ from box_box_bot.tools.fastf1_tools import (
 )
 
 
-def test_all_eight_tools_are_registered():
+def test_all_nine_tools_are_registered():
     assert {t.name for t in FASTF1_TOOLS} == {
         "get_driver_standings",
         "get_constructor_standings",
@@ -26,6 +27,7 @@ def test_all_eight_tools_are_registered():
         "get_tire_strategy",
         "get_race_control_messages",
         "get_weather",
+        "get_all_time_driver_records",
     }
 
 
@@ -172,3 +174,24 @@ def test_get_weather_accepts_race_name_and_session_type():
         get_weather.invoke({"season": 2025, "round": "Monaco", "session_type": "Q"})
 
     mock_fn.assert_called_once_with(2025, "Monaco", "Q")
+
+
+def test_get_all_time_driver_records_calls_data_layer_and_returns_json():
+    fake_data = [{"driverId": "hamilton", "driverName": "Lewis Hamilton", "totalWins": 105, "championships": 7}]
+    with patch(
+        "box_box_bot.tools.fastf1_tools.fastf1_client.get_all_time_driver_records", return_value=fake_data
+    ) as mock_fn:
+        result = get_all_time_driver_records.invoke({})
+
+    mock_fn.assert_called_once_with(10)
+    assert json.loads(result) == fake_data
+
+
+def test_get_all_time_driver_records_passes_top_n_through():
+    fake_data = [{"driverId": "hamilton", "driverName": "Lewis Hamilton", "totalWins": 105, "championships": 7}]
+    with patch(
+        "box_box_bot.tools.fastf1_tools.fastf1_client.get_all_time_driver_records", return_value=fake_data
+    ) as mock_fn:
+        get_all_time_driver_records.invoke({"top_n": 3})
+
+    mock_fn.assert_called_once_with(3)

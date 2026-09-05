@@ -469,3 +469,30 @@ code rather than reading it — a reminder that "the code looks right" and
   (`get_race_results`, `get_fastest_laps`, `get_tire_strategy`,
   `get_race_control_messages`, `get_weather_for_session`), not just the
   one that surfaced it.
+- **Follow-up questions looked like memory loss but weren't.** Asking
+  "who is the best driver" got a clarifying question back; answering
+  "historically best" got a vague non-answer that just restated the same
+  ambiguity — looking, from the outside, exactly like the agent forgot
+  the conversation. Live tracing the full message history proved
+  otherwise: `langgraph_supervisor`'s handoff tool forwards the *entire*
+  conversation to whichever specialist it calls, and every prior turn was
+  present in the state. The real problem was capability, not memory —
+  `stats_agent`'s tools are all `(season, round)`-scoped, `narrative_agent`
+  is single-race RAG, and `predictor_agent` only forecasts the *current*
+  constructors' championship, so nothing in the system could answer a
+  career-spanning question at all. `stats_agent`'s own prompt forbidding
+  it from "speculating about numbers you haven't looked up" meant it
+  couldn't fall back on its own knowledge either, so the supervisor just
+  cycled through rephrased disclaimers forever. Fixed two ways: added
+  `get_all_time_driver_records()` (`fastf1_client.py`) — real aggregated
+  data, not a guess — by walking every season's *final standings* since
+  1950 via Ergast (confirmed live that each row already carries that
+  season's `wins` count, a stable `driverId`, and `position` where `1`
+  means champion, so career totals only cost one Ergast call per season,
+  no per-round data needed) cached process-lifetime behind a
+  `threading.Lock`, the same shape as `predictor/features.py`'s feature
+  cache; and `STATS_SYSTEM_PROMPT` now explicitly permits answering other
+  well-known, static all-time trivia (most poles, most podiums, GOAT
+  debates) that no tool covers, from general knowledge, clearly labeled
+  as such — never for anything current-season or dynamic, which stays
+  tool-only.
