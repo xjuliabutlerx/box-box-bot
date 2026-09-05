@@ -1,5 +1,12 @@
 [theme]
-base = "dark"
+font = "'Titillium Web':https://fonts.googleapis.com/css2?family=Titillium+Web:wght@400;600;700&display=swap"
+headingFont = "'Titillium Web':https://fonts.googleapis.com/css2?family=Titillium+Web:wght@600;700&display=swap"
+
+baseRadius = "small"
+showWidgetBorder = true
+baseFontSize = 18
+
+[theme.dark]
 primaryColor = "#E10600"
 backgroundColor = "#15151E"
 secondaryBackgroundColor = "#1F1F27"
@@ -7,9 +14,10 @@ textColor = "#FFFFFF"
 borderColor = "#38383F"
 redColor = "#E10600"
 
-font = "'Titillium Web':https://fonts.googleapis.com/css2?family=Titillium+Web:wght@400;600;700&display=swap"
-headingFont = "'Titillium Web':https://fonts.googleapis.com/css2?family=Titillium+Web:wght@600;700&display=swap"
-
-baseRadius = "small"
-showWidgetBorder = true
-baseFontSize = 18
+[theme.light]
+primaryColor = "#E10600"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F2F2F4"
+textColor = "#15151E"
+borderColor = "#D9D9DD"
+redColor = "#E10600"

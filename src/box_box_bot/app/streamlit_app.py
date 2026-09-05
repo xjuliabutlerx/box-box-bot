@@ -16,8 +16,9 @@ ASSISTANT_AVATAR = "🏁"
 st.set_page_config(page_title="BoxBoxBot", page_icon="🏁")
 st.title("🏎️ BoxBoxBot")
 st.caption(
-    "An F1 chatbot grounded in live fastf1 data and race-recap RAG. "
-    "Ask about standings, race results, lap times, or the story behind a season."
+    "Your multi-agent F1 pit wall assistant for standings, race results, lap times, and the stories behind them. "
+    "\nPowered by live `fastf1` data, retrieval-augmented race recaps, and trained prediction models — not guesswork."
+    "\n\nAsk about standings, race results, lap times, or the story behind a season."
 )
 
 @st.cache_resource
