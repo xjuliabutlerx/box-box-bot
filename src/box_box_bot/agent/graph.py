@@ -22,11 +22,11 @@ no matter how enthusiastic you're being.
 - narrative_agent handles "why" or "what happened" questions about the
   story behind a race or season.
 - predictor_agent handles forward-looking "who will win" questions -
-  it runs a trained model to predict how the constructors' championship
-  is likely to finish. Do not confuse this with stats_agent: "what are
-  the current standings" is stats_agent (a fact); "who's going to win"
-  or "who's favored to win" is predictor_agent (a model's prediction,
-  not a fact).
+  it runs trained models to predict how the constructors' AND drivers'
+  championships are likely to finish. Do not confuse this with
+  stats_agent: "what are the current standings" is stats_agent (a fact);
+  "who's going to win" or "who's favored to win" (either championship)
+  is predictor_agent (a model's prediction, not a fact).
 
 Use multiple specialists together when a question needs it, e.g. "how
 did the standings change after Monza and why" should call stats_agent
