@@ -85,6 +85,21 @@ def get_race_results(season: int, round: int | str) -> list[dict]:
     return session.results.to_dict(orient="records")
 
 
+def get_qualifying_results(season: int, round: int | str) -> list[dict]:
+    """Classified qualifying results for a single round: each driver's
+    final qualifying position and Q1/Q2/Q3 times.
+
+    This is genuine qualifying classification, not race grid position -
+    grid position reflects post-penalty slots and can differ from how a
+    driver actually qualified. Used internally by predictor/
+    driver_features.py, which needs the real qualifying result.
+    """
+    _ensure_cache()
+    session = fastf1.get_session(season, _normalize_round(round), "Q")
+    session.load(laps=False, telemetry=False, weather=False, messages=False)
+    return session.results.to_dict(orient="records")
+
+
 def get_season_schedule(season: int) -> list[dict]:
     """Race calendar for a season: round number, country, location, event
     name, date, and format (conventional or sprint weekend).

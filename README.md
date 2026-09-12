@@ -479,7 +479,8 @@ code rather than reading it — a reminder that "the code looks right" and
   present in the state. The real problem was capability, not memory —
   `stats_agent`'s tools are all `(season, round)`-scoped, `narrative_agent`
   is single-race RAG, and `predictor_agent` only forecasts the *current*
-  constructors' championship, so nothing in the system could answer a
+  season's championships (constructors' at the time; drivers' was added
+  later, see below), so nothing in the system could answer a
   career-spanning question at all. `stats_agent`'s own prompt forbidding
   it from "speculating about numbers you haven't looked up" meant it
   couldn't fall back on its own knowledge either, so the supervisor just

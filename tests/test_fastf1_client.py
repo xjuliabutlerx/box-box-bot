@@ -142,6 +142,41 @@ def test_get_race_results_loads_session_without_laps_or_telemetry():
     assert result == [{"Position": 1.0, "Abbreviation": "PIA"}]
 
 
+def test_get_qualifying_results_loads_q_session():
+    fake_session = MagicMock()
+    fake_session.results = pd.DataFrame([{"Position": 1.0, "Abbreviation": "PIA", "Q1": pd.Timedelta(seconds=90)}])
+
+    with patch("box_box_bot.data.fastf1_client.fastf1") as mock_fastf1:
+        mock_fastf1.get_session.return_value = fake_session
+        result = fastf1_client.get_qualifying_results(2025, 4)
+
+    mock_fastf1.get_session.assert_called_once_with(2025, 4, "Q")
+    fake_session.load.assert_called_once_with(laps=False, telemetry=False, weather=False, messages=False)
+    assert result[0]["Position"] == 1.0
+
+
+def test_get_qualifying_results_normalizes_numeric_string_round_to_int():
+    fake_session = MagicMock()
+    fake_session.results = pd.DataFrame([{"Position": 1.0, "Abbreviation": "PIA"}])
+
+    with patch("box_box_bot.data.fastf1_client.fastf1") as mock_fastf1:
+        mock_fastf1.get_session.return_value = fake_session
+        fastf1_client.get_qualifying_results(2026, "7")
+
+    mock_fastf1.get_session.assert_called_once_with(2026, 7, "Q")
+
+
+def test_get_qualifying_results_accepts_race_name_instead_of_round():
+    fake_session = MagicMock()
+    fake_session.results = pd.DataFrame([{"Position": 1.0, "Abbreviation": "PIA"}])
+
+    with patch("box_box_bot.data.fastf1_client.fastf1") as mock_fastf1:
+        mock_fastf1.get_session.return_value = fake_session
+        fastf1_client.get_qualifying_results(2025, "Bahrain")
+
+    mock_fastf1.get_session.assert_called_once_with(2025, "Bahrain", "Q")
+
+
 def test_get_season_schedule_returns_calendar_columns():
     fake_schedule = pd.DataFrame(
         [

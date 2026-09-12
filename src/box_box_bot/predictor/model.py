@@ -1,9 +1,14 @@
 """The constructor-ranking model, ported from f1-constructors-predictor.
 
-Architecture and weights (monaco_model_v3.pt) are unchanged from the
-source project - a pairwise-ranking network trained with
-nn.MarginRankingLoss, so the raw output is a per-team score to be sorted,
-not a probability or a points prediction.
+Architecture is unchanged from the source project - a pairwise-ranking
+network trained with nn.MarginRankingLoss, so the raw output is a
+per-team score to be sorted, not a probability or a points prediction.
+
+The source project ships 5 checkpoints (v3), each from a separate
+training run - the filenames are post-hoc quality labels (best overall /
+most consistent / best mid-field / best at the extremes / most robust in
+volatile seasons), not different architectures or feature snapshots. All
+5 share this exact class and the 21-column feature table in features.py.
 """
 
 from pathlib import Path
@@ -11,8 +16,16 @@ from pathlib import Path
 import torch
 from torch import nn
 
-WEIGHTS_PATH = Path(__file__).parent / "weights" / "monaco_model_v3.pt"
+WEIGHTS_DIR = Path(__file__).parent / "weights"
 INPUT_DIM = 21
+
+CONSTRUCTOR_MODEL_FILES = {
+    "Monaco": "monaco_model_v3.pt",
+    "Silverstone": "silverstone_model_v3.pt",
+    "Suzuka": "suzuka_model_v3.pt",
+    "Spa-Francorchamps": "spa-francorchamps_model_v3.pt",
+    "Baku": "baku_model_v3.pt",
+}
 
 
 class F1ConstructorsClassifier(nn.Module):
@@ -37,9 +50,9 @@ class F1ConstructorsClassifier(nn.Module):
         return self.layer(x).squeeze(-1)
 
 
-def load_model() -> F1ConstructorsClassifier:
+def load_model(weights_filename: str = "monaco_model_v3.pt") -> F1ConstructorsClassifier:
     model = F1ConstructorsClassifier(INPUT_DIM, 1)
-    model.load_state_dict(torch.load(WEIGHTS_PATH, map_location="cpu"))
+    model.load_state_dict(torch.load(WEIGHTS_DIR / weights_filename, map_location="cpu"))
     # Has BatchNorm1d layers, which error on a batch of size 1 in train
     # mode - eval mode uses running stats instead, and inference always
     # needs eval mode regardless of batch size.
