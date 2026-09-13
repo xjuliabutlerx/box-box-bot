@@ -10,15 +10,26 @@ except Exception:
 
 from box_box_bot.agent.graph import build_agent
 from box_box_bot.agent.run import ask
+from box_box_bot.app import charts
 
 ASSISTANT_AVATAR = "🏁"
+
+
+def _render_visuals(visuals, key_prefix):
+    for i, visual in enumerate(visuals):
+        key = f"{key_prefix}-visual-{i}"
+        if visual["type"] == "table":
+            st.dataframe(charts.build_table(visual["data"]), key=key, hide_index=True)
+        elif visual["type"] == "tire_strategy_chart":
+            st.plotly_chart(charts.build_tire_strategy_figure(visual["data"]), key=key)
+        elif visual["type"] == "track_map":
+            st.plotly_chart(charts.build_track_map_figure(visual["data"]), key=key)
 
 st.set_page_config(page_title="BoxBoxBot", page_icon="🏁")
 st.title("🏎️ BoxBoxBot")
 st.caption(
-    "Your multi-agent F1 pit wall assistant for standings, race results, lap times, and the stories behind them. "
-    "\nPowered by live `fastf1` data, retrieval-augmented race recaps, and trained prediction models — not guesswork."
-    "\n\nAsk about standings, race results, lap times, or the story behind a season."
+    "Box, box!\n\nI'm your multi-agent F1 pit wall strategist for standings, race results, pit strategy, and the stories behind them powered by live `fastf1` data, retrieval-augmented race recaps, and trained prediction models."
+    "\n\nAsk about standings, results, tire strategy and safety cars, or the story behind a season."
 )
 
 @st.cache_resource
@@ -51,10 +62,12 @@ if "last_turn_cost_usd" not in st.session_state:
 if "message_count" not in st.session_state:
     st.session_state.message_count = 0
 
-for message in st.session_state.messages:
+for idx, message in enumerate(st.session_state.messages):
     avatar = ASSISTANT_AVATAR if message["role"] == "assistant" else None
     with st.chat_message(message["role"], avatar=avatar):
         st.markdown(message["content"])
+        if message.get("visuals"):
+            _render_visuals(message["visuals"], key_prefix=f"history-{idx}")
         if message.get("citations"):
             sources = ", ".join(f"{c['race_name']} ({c['season']})" for c in message["citations"])
             st.caption(f"_Sources: {sources}_")
@@ -89,6 +102,8 @@ if user_input := st.chat_input(
                 tracker["total_cost_usd"] += result["usage"]["cost_usd"]
 
         st.markdown(result["answer"])
+        if result["visuals"]:
+            _render_visuals(result["visuals"], key_prefix=f"live-{st.session_state.message_count}")
         if result["citations"]:
             sources = ", ".join(f"{c['race_name']} ({c['season']})" for c in result["citations"])
             st.caption(f"_Sources: {sources}_")
@@ -96,7 +111,8 @@ if user_input := st.chat_input(
     st.session_state.messages.append({
         "role": "assistant",
         "content": result["answer"],
-        "citations": result["citations"]
+        "citations": result["citations"],
+        "visuals": result["visuals"],
     })
 
 st.caption(

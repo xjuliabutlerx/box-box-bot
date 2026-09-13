@@ -35,6 +35,7 @@ def test_ask_short_circuits_when_off_topic():
 
     assert result["answer"] == OFF_TOPIC_MESSAGE
     assert result["citations"] == []
+    assert result["visuals"] == []
     assert result["usage"]["cost_usd"] == 0.0002
     fake_agent.invoke.assert_not_called()
 
@@ -88,6 +89,34 @@ def test_ask_extracts_citations_from_tool_results():
         result = ask(fake_agent, "Why did Bahrain matter?", "thread-1")
 
     assert result["citations"] == [{"race_name": "Bahrain Grand Prix", "season": 2025}]
+
+
+def test_ask_extracts_visuals_from_tool_results():
+    tool_msg = ToolMessage(
+        content='[{"Driver": "VER", "Stint": 1, "Compound": "SOFT", "StintLength": 20}]',
+        tool_call_id="c1",
+        name="get_tire_strategy",
+    )
+    fake_agent = _fake_agent(
+        {
+            "messages": [
+                HumanMessage(content="What was the tire strategy?"),
+                tool_msg,
+                _ai_message("Verstappen ran a one-stop on softs."),
+            ]
+        }
+    )
+
+    with patch("box_box_bot.agent.run.check_topic", return_value={"on_topic": True, "cost_usd": 0.0}):
+        result = ask(fake_agent, "What was the tire strategy?", "thread-1")
+
+    assert result["visuals"] == [
+        {
+            "type": "tire_strategy_chart",
+            "tool": "get_tire_strategy",
+            "data": [{"Driver": "VER", "Stint": 1, "Compound": "SOFT", "StintLength": 20}],
+        }
+    ]
 
 
 def test_ask_extracts_text_from_list_content_with_thinking_blocks():

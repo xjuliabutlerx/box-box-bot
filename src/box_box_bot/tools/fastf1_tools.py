@@ -118,6 +118,48 @@ def get_weather(season: int, round: int | str, session_type: str = "R") -> str:
     return json.dumps(data, default=str)
 
 @tool(parse_docstring=True)
+def get_pit_stops(season: int, round: int | str, session_type: str = "R") -> str:
+    """Get every pit stop made in a session, with how long each one cost.
+
+    Use this to evaluate strategy - e.g. whether an undercut worked, or how much time a slow stop cost a driver. The returned PitLaneTime is the full pit-lane transit time (entry to exit), NOT the on-camera stationary tire-change time broadcasts usually show - don't confuse the two.
+
+    Args:
+        season: The four-digit F1 season year, e.g. 2023
+        round: Race round number within the season (e.g. 4), or the race name if you're not sure of the round number (e.g. "Bahrain", "Monaco", "Emilia Romagna Grand Prix") - this is fuzzy-matched against each event's country/location/name. Prefer passing the name over guessing a round number you aren't certain of.
+        session_type: The F1 session type. One of 'FP1', 'FP2', 'FP3' (practice), 'Q' (qualifying), 'R' (race), 'S' (sprint race). Sprint weekends also have a session that sets the sprint grid: pass 'SS' for 2023 events or 'SQ' for 2024+ events.
+    """
+    data = fastf1_client.get_pit_stops(season, round, session_type)
+    return json.dumps(data, default=str)
+
+@tool(parse_docstring=True)
+def get_circuit_strategy_history(circuit: str, since_season: int = 2018) -> str:
+    """Get how often a Safety Car, Virtual Safety Car, or Red Flag has historically occurred at a given circuit, season by season.
+
+    Use this to set pre-race strategic expectations for a track - e.g. whether teams there typically need to plan around a safety car. Defaults to 2018 onward since that's fastf1's own cutoff for this kind of detailed session data; a circuit that hasn't hosted a race in a given season is silently skipped for that season.
+
+    Args:
+        circuit: The circuit or race name to look up, e.g. "Monaco", "Spa-Francorchamps", "Silverstone" - fuzzy-matched the same way race names are elsewhere.
+        since_season: The first season to include in the walk. Defaults to 2018.
+    """
+    data = fastf1_client.get_circuit_strategy_history(circuit, since_season)
+    return json.dumps(data, default=str)
+
+@tool(parse_docstring=True)
+def get_circuit_speed_map(season: int, round: int | str, session_type: str = "R", driver: str | None = None) -> str:
+    """Get a lap's track outline colored by speed, oriented to match the circuit's real-world layout - use this whenever the user wants to see or visualize what a track looks like.
+
+    Returns the fastest lap's position data (or a specific driver's fastest lap, if given) as a list of rotated points with their speed, plus corner marker positions. This produces a visual track map for the user - do not try to describe the individual coordinates in your answer, just acknowledge what's shown (circuit, driver, lap time).
+
+    Args:
+        season: The four-digit F1 season year, e.g. 2023
+        round: Race round number within the season (e.g. 4), or the race name if you're not sure of the round number (e.g. "Bahrain", "Monaco", "Emilia Romagna Grand Prix") - this is fuzzy-matched against each event's country/location/name. Prefer passing the name over guessing a round number you aren't certain of.
+        session_type: The F1 session type. One of 'FP1', 'FP2', 'FP3' (practice), 'Q' (qualifying), 'R' (race), 'S' (sprint race). Sprint weekends also have a session that sets the sprint grid: pass 'SS' for 2023 events or 'SQ' for 2024+ events.
+        driver: A specific driver's three-letter code (e.g. "VER") to use their fastest lap instead of the session's overall fastest. Omit to use the overall fastest lap.
+    """
+    data = fastf1_client.get_circuit_speed_map(season, round, session_type, driver)
+    return json.dumps(data, default=str)
+
+@tool(parse_docstring=True)
 def get_all_time_driver_records(top_n: int = 10) -> str:
     """Get the top F1 drivers of all time by career championships and race wins, aggregated across every season since 1950.
 
@@ -135,8 +177,14 @@ FASTF1_TOOLS = [
     get_race_results,
     get_fastest_laps,
     get_season_schedule,
+    get_all_time_driver_records,
+]
+
+STRATEGY_TOOLS = [
     get_tire_strategy,
     get_race_control_messages,
     get_weather,
-    get_all_time_driver_records,
+    get_pit_stops,
+    get_circuit_strategy_history,
+    get_circuit_speed_map,
 ]

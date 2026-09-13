@@ -51,8 +51,8 @@ and the intent is that any layer can be swapped without touching the ones
 above it:
 
 ```
-data/fastf1_client.py  -->  tools/*.py  -->  agent/{stats,narrative,predictor}_agent.py  -->  agent/graph.py  -->  app/streamlit_app.py
-   (fastf1/Ergast)         (@tool wrappers)         (create_agent specialists)             (supervisor)        (chat UI)
+data/fastf1_client.py  -->  tools/*.py  -->  agent/{stats,narrative,predictor,strategist}_agent.py  -->  agent/graph.py  -->  app/streamlit_app.py
+   (fastf1/Ergast)         (@tool wrappers)         (create_agent specialists)                       (supervisor)        (chat UI)
                                                      ^                        ^
                               rag/{embeddings,ingest,retriever}.py   predictor/{model,features,predict}.py
                                         (Chroma + fastembed)                (torch)
@@ -91,6 +91,29 @@ data/fastf1_client.py  -->  tools/*.py  -->  agent/{stats,narrative,predictor}_a
   general knowledge, explicitly labeled as such — see README's Failure
   modes for why this exists (without it, the supervisor had nothing
   concrete to say and looped through disclaimers instead of answering).
+  **`get_pit_stops(season, round, session_type="R")`** and
+  **`get_circuit_strategy_history(circuit, since_season=2018)`** back the
+  strategist specialist (see below). Neither has a fastf1 built-in to
+  lean on — confirmed by reading `fastf1`'s own source before building
+  either: there's no precomputed pit-stop-duration column, and no
+  dedicated safety-car-period object. `get_pit_stops` derives duration
+  from `session.laps`'s `PitInTime` (set on the in-lap) and `PitOutTime`
+  (set on the very next lap for that driver) — the field is named
+  `PitLaneTime` on purpose, since it's the full pit-lane transit time
+  (~18-25s), not the on-camera stationary tire-change time (~2-3s) that
+  "pit stop time" usually means to a viewer; the strategist prompt
+  carries this same caveat so it can't misrepresent the number.
+  `get_circuit_strategy_history` walks every season since `since_season`
+  (2018 by default — fastf1's own documented cutoff for this level of
+  session detail; `events.py` ties full timing support to `year >= 2018`)
+  for a given circuit, using `session.track_status`'s `Status` codes
+  (`'4'` Safety Car, `'5'` Red Flag, `'6'`/`'7'` VSC) rather than the
+  per-lap `TrackStatus` column, since `track_status` is a clean one-row-
+  per-change log instead of a concatenated per-lap string. A season
+  where the circuit doesn't resolve that year is skipped (try/except),
+  not raised — most circuits haven't run every season anyway. Cached per
+  circuit, same lazy dict-plus-lock shape as `_all_time_records_cache`
+  right next to it.
 - **`tools/`** wraps both `data/fastf1_client.py` and `rag/retriever.py` as
   LangChain `@tool(parse_docstring=True)` functions. Every tool output goes
   through `json.dumps(..., default=str)` — pandas output routinely contains
@@ -102,15 +125,23 @@ data/fastf1_client.py  -->  tools/*.py  -->  agent/{stats,narrative,predictor}_a
   `agent/citations.py` possible later; nothing about citations is bolted on
   after the fact.
 - **`agent/graph.py`** builds a `langgraph-supervisor` root agent
-  (`create_supervisor`) that delegates to three specialist sub-agents, each
+  (`create_supervisor`) that delegates to four specialist sub-agents, each
   built via `langchain.agents.create_agent` (not
   `langgraph.prebuilt.create_react_agent`, which this project migrated
   away from mid-build after it was deprecated in favor of the former):
   `agent/stats_agent.py` wraps `FASTF1_TOOLS` for factual/numeric
-  questions, `agent/narrative_agent.py` wraps `RAG_TOOLS` for "why"/
-  "what happened" questions, `agent/predictor_agent.py` wraps
+  questions, `agent/narrative_agent.py` wraps `RAG_TOOLS` for broad "why"/
+  "what happened" story questions, `agent/predictor_agent.py` wraps
   `PREDICTOR_TOOLS` for forward-looking "who will win" model
-  predictions. Each specialist needs a unique `name=` on
+  predictions, and `agent/strategist_agent.py` wraps `STRATEGY_TOOLS`
+  (`tools/fastf1_tools.py`'s tire strategy, pit stops, race control, and
+  weather tools) for tactical in-race "why"/"how" questions — undercuts,
+  pit windows, safety-car risk. `STRATEGY_TOOLS` was split out of what
+  used to be `stats_agent`'s single `FASTF1_TOOLS` list, the same move
+  already made once before for `narrative_agent`: a "just the numbers"
+  specialist and a specialist that has to *reason* about those numbers
+  are different jobs, and giving each its own prompt/routing surface
+  avoids diluting either one. Each specialist needs a unique `name=` on
   `create_agent(...)` — `create_supervisor` uses it to build a
   `transfer_to_<name>` handoff tool per agent and raises if any two
   agents share a name. **`create_supervisor` must be called with
@@ -132,7 +163,20 @@ data/fastf1_client.py  -->  tools/*.py  -->  agent/{stats,narrative,predictor}_a
   prompt — LLM tool-routing is probabilistic, and rich enough intermediate
   data makes the model more confident it doesn't need another hop. Fixed
   by making the supervisor prompt explicitly forbid answering "why"/"what
-  happened" content from `stats_agent`'s data alone.
+  happened" content from `stats_agent`'s data alone. The same lesson
+  applied again when `strategist_agent` was added: `SUPERVISOR_PROMPT`
+  spells out concrete example questions for each of the three "why"-
+  shaped specialists (`stats_agent` gets none — it's facts only) so the
+  model has to actually classify a question rather than pattern-match on
+  vague labels like "tactical" vs "story." It surfaced a third time when
+  `get_circuit_speed_map` (see below) was added: a "show me the track
+  layout" request never even reached a specialist — the supervisor
+  answered it directly with a reflexive "I'm text-only, I can't display
+  images," since nothing told it the app could now render real visuals.
+  `SUPERVISOR_PROMPT` had to say so explicitly (never claim you can't
+  show a visual — try the specialist first), the same fix shape as the
+  other two: a routing gap here isn't a missing tool, it's a missing
+  sentence in the prompt telling the model the capability exists at all.
 - **`tools/rag_tools.py`'s lazy retriever singleton needed a lock.** A
   supervisor can issue parallel tool calls within one turn (e.g. two
   `search_race_recaps` calls for two sub-queries), and two threads racing
@@ -190,8 +234,8 @@ data/fastf1_client.py  -->  tools/*.py  -->  agent/{stats,narrative,predictor}_a
   answer text (Claude Sonnet 5 returns `content` as a list of
   thinking/text blocks when tools were used, not a plain string — always
   filter for `type == "text"` blocks rather than assuming a string),
-  extracts citations, and estimates cost, returning
-  `{"answer", "citations", "usage"}`.
+  extracts citations, extracts visuals, and estimates cost, returning
+  `{"answer", "citations", "visuals", "usage"}`.
 - **`agent/citations.py`** is two separate steps, not one:
   `extract_citations()` pulls every `[Source: ...]` tag out of this turn's
   `search_race_recaps` tool results (sliced from the last human message
@@ -203,6 +247,45 @@ data/fastf1_client.py  -->  tools/*.py  -->  agent/{stats,narrative,predictor}_a
   disappear nondeterministically between otherwise-identical runs. This
   means a retrieved-but-unused chunk (retrieval isn't perfectly precise —
   see the RAG note below) never shows up as a false citation.
+- **`agent/visuals.py::extract_visuals()`** generalizes the same
+  ground-truth-from-the-tool-result pattern citations already
+  established, for tables and charts instead of source tags. Almost
+  every tool already returns `list[dict]` JSON, so any such result
+  becomes a generic table with no per-tool allowlist to maintain; two
+  tools override that with a specific chart type instead
+  (`get_tire_strategy` → `tire_strategy_chart`, `get_circuit_speed_map`
+  → `track_map`), and `get_circuit_strategy_history`'s nested
+  `by_season` list is pulled out as its table content. Unlike citations,
+  this does **not** filter by whether the model's answer text mentions
+  it — every tool call this turn is a deliberate, targeted lookup, not
+  RAG's noisier top-k retrieval, so its data is worth showing regardless
+  of how much of it the model narrates in prose.
+  **`app/charts.py`** turns that structured data into an actual
+  `plotly.graph_objects.Figure`/`pd.DataFrame` — deliberately kept
+  Streamlit-free (pure functions) so it's unit-testable, unlike
+  `app/streamlit_app.py` itself. `build_track_map_figure` colors the
+  points by speed since plotly has no native per-segment colored-line
+  trace — coloring the markers themselves, at the source data's point
+  density, is the standard workaround.
+  **`data/fastf1_client.py::get_circuit_speed_map`** is the one new data
+  function this needed: fastf1 has no bundled full track-outline dataset
+  (`get_circuit_info()` only gives corner/marshal-post markers, not a
+  continuous shape — confirmed from its own docstring) — the outline
+  comes from a lap's own position telemetry instead
+  (`Lap.get_telemetry()`, which merges car `Speed` with interpolated X/Y
+  position — needs `session.load(telemetry=True, ...)`, a flag none of
+  this file's other functions have needed before). Every point (and
+  every corner marker, so they stay aligned) is rotated by the circuit's
+  documented `rotation` degrees to match the real-world orientation, and
+  the result is downsampled to at most `max_points` before returning —
+  a full lap's raw telemetry is far more detail than a clean plot needs,
+  and far more than's worth spending on LLM context for data the model
+  only needs to acknowledge, not read point-by-point (same "don't return
+  more than needed" discipline as `get_fastest_laps`'s `top_n`). The
+  downsample step must use *ceiling* division, not floor — `729 // 400
+  == 1`, which silently disables downsampling entirely for any length
+  under 2x `max_points` (caught via live testing, not a unit test, since
+  the round numbers used in the original test happened to hide it).
 - **`agent/cost.py`** sums `usage_metadata` (LangChain's provider-normalized
   token counts) across every model call in a turn — a single turn is often
   more than one call (decide to use a tool, then a follow-up call once the

@@ -5,10 +5,14 @@ import pandas as pd
 
 from box_box_bot.tools.fastf1_tools import (
     FASTF1_TOOLS,
+    STRATEGY_TOOLS,
     get_all_time_driver_records,
+    get_circuit_speed_map,
+    get_circuit_strategy_history,
     get_constructor_standings,
     get_driver_standings,
     get_fastest_laps,
+    get_pit_stops,
     get_race_control_messages,
     get_race_results,
     get_season_schedule,
@@ -17,17 +21,25 @@ from box_box_bot.tools.fastf1_tools import (
 )
 
 
-def test_all_nine_tools_are_registered():
+def test_stats_tools_are_registered():
     assert {t.name for t in FASTF1_TOOLS} == {
         "get_driver_standings",
         "get_constructor_standings",
         "get_race_results",
         "get_fastest_laps",
         "get_season_schedule",
+        "get_all_time_driver_records",
+    }
+
+
+def test_strategy_tools_are_registered():
+    assert {t.name for t in STRATEGY_TOOLS} == {
         "get_tire_strategy",
         "get_race_control_messages",
         "get_weather",
-        "get_all_time_driver_records",
+        "get_pit_stops",
+        "get_circuit_strategy_history",
+        "get_circuit_speed_map",
     }
 
 
@@ -195,3 +207,73 @@ def test_get_all_time_driver_records_passes_top_n_through():
         get_all_time_driver_records.invoke({"top_n": 3})
 
     mock_fn.assert_called_once_with(3)
+
+
+def test_get_pit_stops_calls_data_layer_and_returns_json():
+    fake_data = [{"Driver": "VER", "Team": "Red Bull Racing", "LapNumber": 20.0, "PitLaneTime": "0 days 00:00:22"}]
+    with patch("box_box_bot.tools.fastf1_tools.fastf1_client.get_pit_stops", return_value=fake_data) as mock_fn:
+        result = get_pit_stops.invoke({"season": 2025, "round": 4})
+
+    mock_fn.assert_called_once_with(2025, 4, "R")
+    assert json.loads(result) == fake_data
+
+
+def test_get_pit_stops_accepts_race_name_and_session_type():
+    fake_data = [{"Driver": "VER", "Team": "Red Bull Racing", "LapNumber": 5.0, "PitLaneTime": "0 days 00:00:23"}]
+    with patch("box_box_bot.tools.fastf1_tools.fastf1_client.get_pit_stops", return_value=fake_data) as mock_fn:
+        get_pit_stops.invoke({"season": 2025, "round": "Bahrain", "session_type": "Q"})
+
+    mock_fn.assert_called_once_with(2025, "Bahrain", "Q")
+
+
+def test_get_circuit_strategy_history_calls_data_layer_and_returns_json():
+    fake_data = {
+        "circuit": "Monaco",
+        "since_season": 2018,
+        "total_races_found": 6,
+        "safety_car_races": 3,
+        "vsc_races": 2,
+        "red_flag_races": 0,
+        "by_season": [],
+    }
+    with patch(
+        "box_box_bot.tools.fastf1_tools.fastf1_client.get_circuit_strategy_history", return_value=fake_data
+    ) as mock_fn:
+        result = get_circuit_strategy_history.invoke({"circuit": "Monaco"})
+
+    mock_fn.assert_called_once_with("Monaco", 2018)
+    assert json.loads(result) == fake_data
+
+
+def test_get_circuit_strategy_history_passes_since_season_through():
+    fake_data = {"circuit": "Spa-Francorchamps", "since_season": 2020, "total_races_found": 0}
+    with patch(
+        "box_box_bot.tools.fastf1_tools.fastf1_client.get_circuit_strategy_history", return_value=fake_data
+    ) as mock_fn:
+        get_circuit_strategy_history.invoke({"circuit": "Spa-Francorchamps", "since_season": 2020})
+
+    mock_fn.assert_called_once_with("Spa-Francorchamps", 2020)
+
+
+def test_get_circuit_speed_map_calls_data_layer_and_returns_json():
+    fake_data = {
+        "circuit": "Monaco Grand Prix",
+        "driver": "VER",
+        "lap_time": "0 days 00:01:12.909000",
+        "rotation_degrees": 42.0,
+        "points": [{"X": 1.0, "Y": 2.0, "Speed": 250.0}],
+        "corners": [{"Number": 1, "Letter": "", "X": 1.0, "Y": 2.0}],
+    }
+    with patch("box_box_bot.tools.fastf1_tools.fastf1_client.get_circuit_speed_map", return_value=fake_data) as mock_fn:
+        result = get_circuit_speed_map.invoke({"season": 2025, "round": 4})
+
+    mock_fn.assert_called_once_with(2025, 4, "R", None)
+    assert json.loads(result) == fake_data
+
+
+def test_get_circuit_speed_map_passes_driver_and_session_type_through():
+    fake_data = {"circuit": "Bahrain", "driver": "HAM", "points": [], "corners": []}
+    with patch("box_box_bot.tools.fastf1_tools.fastf1_client.get_circuit_speed_map", return_value=fake_data) as mock_fn:
+        get_circuit_speed_map.invoke({"season": 2025, "round": "Bahrain", "session_type": "Q", "driver": "HAM"})
+
+    mock_fn.assert_called_once_with(2025, "Bahrain", "Q", "HAM")
