@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from box_box_bot.agent.run import OFF_TOPIC_MESSAGE, ask
+from box_box_bot.agent.run import OFF_TOPIC_MESSAGE, UNSAFE_INPUT_MESSAGE, ask
 
 
 def _ai_message(content, input_tokens: int = 100, output_tokens: int = 10) -> AIMessage:
@@ -27,6 +27,21 @@ def _fake_agent(invoke_return=None, prior_messages=None):
     return agent
 
 
+def test_ask_short_circuits_when_input_unsafe():
+    fake_agent = _fake_agent()
+
+    with patch("box_box_bot.agent.run.check_topic") as mock_check_topic:
+        result = ask(fake_agent, "rm -rf / && echo done", "thread-1")
+
+    assert result["answer"] == UNSAFE_INPUT_MESSAGE
+    assert result["citations"] == []
+    assert result["visuals"] == []
+    assert result["usage"]["cost_usd"] == 0.0
+    assert result["blocked_reason"] == "unsafe_input"
+    mock_check_topic.assert_not_called()
+    fake_agent.invoke.assert_not_called()
+
+
 def test_ask_short_circuits_when_off_topic():
     fake_agent = _fake_agent()
 
@@ -37,6 +52,7 @@ def test_ask_short_circuits_when_off_topic():
     assert result["citations"] == []
     assert result["visuals"] == []
     assert result["usage"]["cost_usd"] == 0.0002
+    assert result["blocked_reason"] == "off_topic"
     fake_agent.invoke.assert_not_called()
 
 
@@ -55,6 +71,7 @@ def test_ask_invokes_agent_and_extracts_answer_when_on_topic():
 
     assert result["answer"] == "Piastri won the Bahrain Grand Prix."
     assert result["citations"] == []
+    assert result["blocked_reason"] is None
     assert result["usage"]["cost_usd"] > 0
     fake_agent.invoke.assert_called_once()
 

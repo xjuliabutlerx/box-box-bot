@@ -315,14 +315,18 @@ data/fastf1_client.py  -->  tools/*.py  -->  agent/{stats,narrative,predictor,st
   refresh, only resets if the server process restarts) — neither is a
   perfectly airtight ceiling under concurrent load, so the actual backstop
   is a spend limit set directly in the Anthropic Console. A third, coarser
-  guardrail sits in front of both: `REQUIRE_PASSWORD`/`APP_PASSWORD`
+  guardrail sits in front of both: `REQUIRE_PASSWORD`/`APP_PASSWORDS`
   (`.env` locally, Streamlit Cloud's Secrets panel in production) gate the
   entire app behind a password, checked and `st.stop()`-enforced before
   `get_agent()` or any chat UI is reached — so an unauthenticated visitor
   can't trigger any Anthropic spend at all, not just a capped amount of
-  it. Off by default (unset reads as `"false"`) so the app stays open
-  with zero friction until explicitly locked down; this is meant to be
-  flipped on/off via secrets alone, no code change or redeploy needed.
+  it. `APP_PASSWORDS` is deliberately plural — a comma-separated list
+  split/stripped into a set, matched by membership rather than equality —
+  so different people can be handed different passwords without the app
+  needing per-user accounts. Off by default (unset reads as `"false"`) so
+  the app stays open with zero friction until explicitly locked down;
+  this is meant to be flipped on/off via secrets alone, no code change or
+  redeploy needed.
 - **Secrets**: locally via `.env` (loaded by `config.py`); on Streamlit
   Community Cloud via the dashboard's Secrets panel, which `streamlit_app.py`
   mirrors into `os.environ` *before* importing anything from `box_box_bot`
