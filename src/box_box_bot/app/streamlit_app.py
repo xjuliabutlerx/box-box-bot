@@ -13,6 +13,7 @@ from box_box_bot.agent.graph import build_agent
 from box_box_bot.agent.run import ask
 from box_box_bot.app import charts
 from box_box_bot.logging_config import configure_logging
+from box_box_bot.rag.ingest import ensure_vectorstore_built
 
 configure_logging()
 _logger = logging.getLogger(__name__)
@@ -86,6 +87,16 @@ if os.environ.get("REQUIRE_PASSWORD", "false").strip().lower() == "true":
                 _logger.info("Failed password attempt")
                 st.error("Incorrect password.")
         st.stop()
+
+@st.cache_resource
+def _ensure_vectorstore_ready():
+    # A fresh deploy starts with no vector store so
+    # this function creates a new one
+    ensure_vectorstore_built()
+    return True
+
+with st.spinner("Setting up narrative search (first run only)..."):
+    _ensure_vectorstore_ready()
 
 @st.cache_resource
 def get_agent():
