@@ -91,7 +91,7 @@ if os.environ.get("REQUIRE_PASSWORD", "false").strip().lower() == "true":
 @st.cache_resource
 def _ensure_vectorstore_ready():
     # A fresh deploy starts with no vector store so
-    # this function creates an empty one
+    # this function creates a new one
     ensure_vectorstore_built()
     return True
 
