@@ -103,6 +103,37 @@ def test_get_all_time_driver_records_respects_top_n():
     assert result[0]["driverId"] == "driver_a"
 
 
+def test_get_all_time_driver_records_skips_a_season_whose_request_fails():
+    # Regression test: ~76 sequential Ergast/Jolpica calls (1950-present)
+    # is enough to occasionally trip rate limiting on one of them. A
+    # single failed season must not sink the whole walk - it's skipped,
+    # same as _build_circuit_strategy_history's per-season try/except -
+    # and the cache must still end up populated with everything else, or
+    # every future call anywhere would retry all ~76 calls from scratch.
+    fastf1_client._all_time_records_cache = None
+
+    def _side_effect(season, round=None):
+        if season == 2024:
+            raise Exception("Too Many Requests")
+        return _fake_all_time_standings_response(season, round)
+
+    with (
+        patch("box_box_bot.data.fastf1_client.datetime") as mock_datetime,
+        patch("box_box_bot.data.fastf1_client.FIRST_F1_SEASON", 2023),
+        patch("box_box_bot.data.fastf1_client.Ergast") as mock_ergast_cls,
+        patch("box_box_bot.data.fastf1_client.fastf1"),
+    ):
+        mock_datetime.date.today.return_value.year = 2025
+        mock_ergast_cls.return_value.get_driver_standings.side_effect = _side_effect
+        result = fastf1_client.get_all_time_driver_records()
+
+    by_id = {row["driverId"]: row for row in result}
+    # 2024's wins/championship never got counted, but 2023 and 2025 did -
+    # a partial result, not an empty one or a raised exception.
+    assert by_id["driver_a"]["totalWins"] == 12  # 10 (2023) + 2 (2025), not +8 from 2024
+    assert fastf1_client._all_time_records_cache is not None
+
+
 def test_get_all_time_driver_records_caches_across_calls():
     fastf1_client._all_time_records_cache = None
     with (

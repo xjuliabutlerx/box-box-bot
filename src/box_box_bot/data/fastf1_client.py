@@ -372,12 +372,23 @@ def _build_all_time_driver_records() -> list[dict]:
     round), since each row already carries that season's `wins` count and
     `position` (1 = that season's champion) alongside a stable `driverId`.
     Podiums/poles would need per-round data instead and aren't covered.
+
+    ~76 sequential Ergast/Jolpica calls in a row is enough to trip that
+    API's rate limiting on occasion - a single season's request failing
+    must not sink the whole walk (or, worse, leave the process-lifetime
+    cache in `get_all_time_driver_records` permanently unpopulated, so
+    every subsequent call anywhere retries all 76 calls from scratch and
+    can hit the same wall again). A season that fails is skipped, same
+    as `_build_circuit_strategy_history`'s per-season try/except.
     """
     totals: dict[str, dict] = {}
     current_year = datetime.date.today().year
 
     for season in range(FIRST_F1_SEASON, current_year + 1):
-        response = Ergast().get_driver_standings(season=season, round=None)
+        try:
+            response = Ergast().get_driver_standings(season=season, round=None)
+        except Exception:
+            continue
         if not response.content:
             continue
         for row in response.content[0].to_dict(orient="records"):
