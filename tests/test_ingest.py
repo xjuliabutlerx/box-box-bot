@@ -1,4 +1,5 @@
 import textwrap
+from unittest.mock import patch
 
 import pytest
 
@@ -87,3 +88,33 @@ def test_build_vectorstore_is_idempotent_on_repeat_runs(recaps_dir, tmp_path, mo
     second_count = ingest.build_vectorstore()._collection.count()
 
     assert second_count == first_count
+
+
+def test_ensure_vectorstore_built_builds_when_persist_dir_missing(recaps_dir, tmp_path, monkeypatch):
+    # Regression test: RAG_PERSIST_DIR is gitignored, so a fresh deploy
+    # (Streamlit Cloud checks out a clean git tree every time) starts
+    # with no vector store at all - Chroma doesn't raise for that, it
+    # silently creates an empty one, so every narrative query returned
+    # zero results with no error. This is what makes a fresh deploy
+    # self-healing instead of silently empty.
+    persist_dir = tmp_path / "vectorstore"
+    monkeypatch.setattr(ingest, "RAG_PERSIST_DIR", persist_dir)
+    monkeypatch.setattr(ingest, "TRACK_INFO_DIR", recaps_dir)
+    assert not persist_dir.exists()
+
+    ingest.ensure_vectorstore_built()
+
+    assert persist_dir.exists()
+
+
+def test_ensure_vectorstore_built_is_a_noop_when_already_present(tmp_path, monkeypatch):
+    persist_dir = tmp_path / "vectorstore"
+    persist_dir.mkdir()
+    monkeypatch.setattr(ingest, "RAG_PERSIST_DIR", persist_dir)
+
+    with patch("box_box_bot.rag.ingest.build_vectorstore") as mock_build, \
+         patch("box_box_bot.rag.ingest.build_track_info_vectorstore") as mock_build_track:
+        ingest.ensure_vectorstore_built()
+
+    mock_build.assert_not_called()
+    mock_build_track.assert_not_called()

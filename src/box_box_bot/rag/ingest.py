@@ -98,6 +98,15 @@ def build_track_info_vectorstore() -> Chroma:
     return _build_collection(_load_documents_from(TRACK_INFO_DIR), TRACK_INFO_COLLECTION_NAME)
 
 
+def ensure_vectorstore_built() -> None:
+    """Build both vector stores since RAG_PERSIST_DIR is gitignored. This ensures data exists for the deployed Streamlit app.
+    """
+    if RAG_PERSIST_DIR.exists():
+        return
+    build_vectorstore()
+    build_track_info_vectorstore()
+
+
 if __name__ == "__main__":
     vectorstore = build_vectorstore()
     count = vectorstore._collection.count()
