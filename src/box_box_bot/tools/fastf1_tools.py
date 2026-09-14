@@ -1,3 +1,4 @@
+import datetime
 import functools
 import json
 import logging
@@ -7,6 +8,46 @@ from langchain_core.tools import tool
 from box_box_bot.data import fastf1_client
 
 _logger = logging.getLogger(__name__)
+
+
+def _find_future_event(season, round_value):
+    """If `round_value` resolves to a scheduled-but-not-yet-run event in
+    `season`, return that event's schedule row; otherwise None.
+
+    A tool failure for a not-yet-happened session is indistinguishable
+    from any other fastf1 failure once it's an exception. The generic message
+    doesn't tell the agent it's a *dated*, checkable condition, so it
+    silently gives up instead of either explaining why or trying last
+    year. This does a cheap schedule lookup (round-number or name/
+    location/country substring match, same lightweight style as
+    `_build_circuit_strategy_history`'s validation) only on the failure
+    path, not on every call.
+    """
+    try:
+        schedule = fastf1_client.get_season_schedule(season)
+    except Exception:
+        return None
+
+    round_key = str(round_value).strip().casefold()
+    match = None
+    for row in schedule:
+        if str(row.get("RoundNumber")) == round_key:
+            match = row
+            break
+        haystack = f"{row.get('EventName', '')} {row.get('Location', '')} {row.get('Country', '')}".casefold()
+        if round_key and round_key in haystack:
+            match = row
+            break
+    if match is None:
+        return None
+
+    event_date = match.get("EventDate")
+    if hasattr(event_date, "date"):
+        event_date = event_date.date()
+    if not isinstance(event_date, datetime.date) or event_date <= datetime.date.today():
+        return None
+    return match
+
 
 # Any exception escaping a tool function aborts the entire agent turn
 # (LangGraph's ToolNode only catches its own internal error type by
@@ -24,8 +65,56 @@ def _catch_fastf1_errors(func):
             _logger.warning(
                 "%s failed (args=%s kwargs=%s): %s", func.__name__, args, kwargs, exc, exc_info=True
             )
-            return json.dumps({
-                "error": (
+
+            season = kwargs.get("season")
+            round_value = kwargs.get("round")
+            future_event = (
+                _find_future_event(season, round_value)
+                if season is not None and round_value is not None
+                else None
+            )
+
+            if future_event is not None:
+                # Deterministic, bounded fallback - try exactly one year
+                # back ourselves rather than leaving it to the model's
+                # judgment whether to retry
+
+                # `season: int` is coerced to int by tool-arg validation 
+                # before this function body ever runs, or rejected outright
+                # if it can't be parsed as one
+                fallback_season = season - 1
+                fallback_kwargs = {**kwargs, "season": fallback_season}
+                try:
+                    fallback_data = json.loads(func(*args, **fallback_kwargs))
+                except Exception:
+                    fallback_data = None
+
+                if fallback_data and not (isinstance(fallback_data, dict) and "error" in fallback_data):
+                    _logger.info(
+                        "%s: %s (%s) hasn't happened yet - fell back to season=%s",
+                        func.__name__, future_event.get("EventName"), season, fallback_season,
+                    )
+                    return json.dumps({
+                        "fallback_note": (
+                            f"The {future_event.get('EventName', 'race')} ({season}) "
+                            f"hasn't happened yet - it's scheduled for "
+                            f"{future_event['EventDate']}. Showing {fallback_season} "
+                            f"data instead. You MUST tell the user this is "
+                            f"{fallback_season}'s data, not {season}'s, since this "
+                            "year's race hasn't run yet."
+                        ),
+                        "season_used": fallback_season,
+                        "result": fallback_data,
+                    })
+
+                error_message = (
+                    f"The {future_event.get('EventName', 'race')} ({season}) hasn't "
+                    f"happened yet - it's scheduled for {future_event['EventDate']} - "
+                    f"and {fallback_season} data wasn't available either. Tell the "
+                    "user this data isn't available rather than guessing an answer."
+                )
+            else:
+                error_message = (
                     f"Could not load this data: {exc}. This can happen for a "
                     "session that hasn't happened yet, a season before "
                     f"{fastf1_client.FIRST_DETAILED_TIMING_SEASON} (fastf1's "
@@ -33,6 +122,8 @@ def _catch_fastf1_errors(func):
                     "source issue. Tell the user this specific data isn't "
                     "available rather than guessing an answer."
                 )
+            return json.dumps({
+                "error": error_message
             })
     return wrapper
 

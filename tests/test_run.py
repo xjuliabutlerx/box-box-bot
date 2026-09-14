@@ -132,6 +132,7 @@ def test_ask_extracts_visuals_from_tool_results():
             "type": "tire_strategy_chart",
             "tool": "get_tire_strategy",
             "data": [{"Driver": "VER", "Stint": 1, "Compound": "SOFT", "StintLength": 20}],
+            "label": "get tire strategy",
         }
     ]
 

@@ -1,3 +1,4 @@
+import datetime
 import json
 from unittest.mock import patch
 
@@ -387,6 +388,8 @@ def test_get_tire_strategy_returns_error_json_instead_of_raising():
     with patch(
         "box_box_bot.tools.fastf1_tools.fastf1_client.get_tire_strategy",
         side_effect=DataNotLoadedError("The data you are trying to access has not been loaded yet."),
+    ), patch(
+        "box_box_bot.tools.fastf1_tools.fastf1_client.get_season_schedule", return_value=[]
     ):
         result = get_tire_strategy.invoke({"season": 2016, "round": 5})
 
@@ -399,11 +402,124 @@ def test_get_race_results_returns_error_json_instead_of_raising():
     with patch(
         "box_box_bot.tools.fastf1_tools.fastf1_client.get_race_results",
         side_effect=DataNotLoadedError("boom"),
+    ), patch(
+        "box_box_bot.tools.fastf1_tools.fastf1_client.get_season_schedule", return_value=[]
     ):
         result = get_race_results.invoke({"season": 2016, "round": 5})
 
     parsed = json.loads(result)
     assert "error" in parsed
+
+
+_FUTURE_BAKU_SCHEDULE = [
+    {
+        "RoundNumber": 15,
+        "Country": "Azerbaijan",
+        "Location": "Baku",
+        "EventName": "Azerbaijan Grand Prix",
+        "EventFormat": "conventional",
+        "EventDate": datetime.date(2026, 9, 26),
+    },
+]
+
+
+def _tire_strategy_2025_only(season, round, session_type="R"):
+    # Simulates 2026 having no data yet (scheduled but not run) while
+    # 2025's real data is available - the exact shape of the live bug.
+    if season == 2026:
+        raise DataNotLoadedError("The data you are trying to access has not been loaded yet.")
+    return [{"Driver": "VER", "Stint": 1, "Compound": "SOFT", "StintLength": 20}]
+
+
+def test_future_session_automatically_falls_back_to_last_year():
+    # Regression: live-observed bug - asking about a session that's on
+    # the calendar but hasn't run yet (e.g. 2026 Baku, scheduled after
+    # today) failed with the same generic "could not load" message as
+    # any other failure, so the agent silently gave up on the tool
+    # entirely instead of explaining why or trying last year. The retry
+    # must happen automatically here, not be left to the model's
+    # judgment whether to retry (LLM tool-routing is probabilistic) -
+    # but the result must still be clearly, machine-checkably labeled
+    # as a fallback, not silently presented as this year's data.
+    with patch(
+        "box_box_bot.tools.fastf1_tools.fastf1_client.get_tire_strategy",
+        side_effect=_tire_strategy_2025_only,
+    ), patch(
+        "box_box_bot.tools.fastf1_tools.fastf1_client.get_season_schedule",
+        return_value=_FUTURE_BAKU_SCHEDULE,
+    ):
+        result = get_tire_strategy.invoke({"season": 2026, "round": "Baku"})
+
+    parsed = json.loads(result)
+    assert "error" not in parsed
+    assert parsed["season_used"] == 2025
+    assert parsed["result"] == [{"Driver": "VER", "Stint": 1, "Compound": "SOFT", "StintLength": 20}]
+    assert "Azerbaijan Grand Prix" in parsed["fallback_note"]
+    assert "hasn't happened yet" in parsed["fallback_note"]
+    assert "2025" in parsed["fallback_note"]
+
+
+def test_future_session_falls_back_when_round_is_a_number_too():
+    with patch(
+        "box_box_bot.tools.fastf1_tools.fastf1_client.get_tire_strategy",
+        side_effect=_tire_strategy_2025_only,
+    ), patch(
+        "box_box_bot.tools.fastf1_tools.fastf1_client.get_season_schedule",
+        return_value=_FUTURE_BAKU_SCHEDULE,
+    ):
+        result = get_tire_strategy.invoke({"season": 2026, "round": 15})
+
+    parsed = json.loads(result)
+    assert parsed["season_used"] == 2025
+
+
+def test_future_session_reports_unavailable_when_fallback_also_fails():
+    # Both 2026 (not yet happened) and the 2025 fallback fail here - the
+    # agent must be told plainly that neither year has data, not left
+    # thinking a retry might still help.
+    with patch(
+        "box_box_bot.tools.fastf1_tools.fastf1_client.get_tire_strategy",
+        side_effect=DataNotLoadedError("boom"),
+    ), patch(
+        "box_box_bot.tools.fastf1_tools.fastf1_client.get_season_schedule",
+        return_value=_FUTURE_BAKU_SCHEDULE,
+    ):
+        result = get_tire_strategy.invoke({"season": 2026, "round": "Baku"})
+
+    parsed = json.loads(result)
+    assert "Azerbaijan Grand Prix" in parsed["error"]
+    assert "2025" in parsed["error"]
+
+
+def test_error_stays_generic_when_the_session_already_happened():
+    past_schedule = [{**_FUTURE_BAKU_SCHEDULE[0], "EventDate": datetime.date(2020, 1, 1)}]
+    with patch(
+        "box_box_bot.tools.fastf1_tools.fastf1_client.get_tire_strategy",
+        side_effect=DataNotLoadedError("boom"),
+    ), patch(
+        "box_box_bot.tools.fastf1_tools.fastf1_client.get_season_schedule",
+        return_value=past_schedule,
+    ):
+        result = get_tire_strategy.invoke({"season": 2026, "round": "Baku"})
+
+    parsed = json.loads(result)
+    assert "Azerbaijan Grand Prix" not in parsed["error"]
+    assert "Could not load this data" in parsed["error"]
+
+
+def test_error_stays_generic_when_schedule_lookup_itself_fails():
+    with patch(
+        "box_box_bot.tools.fastf1_tools.fastf1_client.get_tire_strategy",
+        side_effect=DataNotLoadedError("boom"),
+    ), patch(
+        "box_box_bot.tools.fastf1_tools.fastf1_client.get_season_schedule",
+        side_effect=Exception("network error"),
+    ):
+        result = get_tire_strategy.invoke({"season": 2026, "round": "Baku"})
+
+    parsed = json.loads(result)
+    assert "Azerbaijan Grand Prix" not in parsed["error"]
+    assert "Could not load this data" in parsed["error"]
 
 
 @pytest.mark.parametrize("tool", FASTF1_TOOLS + STRATEGY_TOOLS)

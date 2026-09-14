@@ -29,6 +29,13 @@ def _render_blocked(text, blocked_reason):
 def _render_visuals(visuals, key_prefix):
     for i, visual in enumerate(visuals):
         key = f"{key_prefix}-visual-{i}"
+        # tables have no title of their own, and tire_strategy_chart's is
+        # a static "Tire Strategy" with no season/round - without this,
+        # several visuals from the same tool (e.g. race results pulled
+        # for a few different seasons) render as an unlabeled stack of
+        # lookalike tables, a live-reported bug.
+        if visual.get("label"):
+            st.caption(visual["label"])
         if visual["type"] == "table":
             st.dataframe(charts.build_table(visual["data"]), key=key, hide_index=True)
         elif visual["type"] == "tire_strategy_chart":
