@@ -1,8 +1,40 @@
+import functools
 import json
+import logging
 
 from langchain_core.tools import tool
 
 from box_box_bot.data import fastf1_client
+
+_logger = logging.getLogger(__name__)
+
+# Any exception escaping a tool function aborts the entire agent turn
+# (LangGraph's ToolNode only catches its own internal error type by
+# default), so every fastf1-backed tool needs to catch failures here and
+# hand the agent a readable message instead of crashing the whole turn.
+def _catch_fastf1_errors(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as exc:
+            # the agent only ever sees the sanitized message below - this
+            # is the one place the real exception (and which tool/args
+            # triggered it) gets recorded anywhere
+            _logger.warning(
+                "%s failed (args=%s kwargs=%s): %s", func.__name__, args, kwargs, exc, exc_info=True
+            )
+            return json.dumps({
+                "error": (
+                    f"Could not load this data: {exc}. This can happen for a "
+                    "session that hasn't happened yet, a season before "
+                    f"{fastf1_client.FIRST_DETAILED_TIMING_SEASON} (fastf1's "
+                    "full timing data doesn't cover it), or a temporary data "
+                    "source issue. Tell the user this specific data isn't "
+                    "available rather than guessing an answer."
+                )
+            })
+    return wrapper
 
 # Learnings:
 #   parse_docstring=True means that LangChain will read the docstring Args block and attach it to the tool description schema
@@ -45,6 +77,7 @@ def _summarize_weather(rows: list[dict]) -> dict:
     }
 
 @tool(parse_docstring=True)
+@_catch_fastf1_errors
 def get_driver_standings(season:int, round:int | None = None) -> str:
     """Get F1 driver championship standings for a season.
 
@@ -58,6 +91,7 @@ def get_driver_standings(season:int, round:int | None = None) -> str:
     return json.dumps(data, default=str)
 
 @tool(parse_docstring=True)
+@_catch_fastf1_errors
 def get_constructor_standings(season:int, round:int | None = None) -> str:
     """Get F1 constructor championship standings for a season.
 
@@ -71,6 +105,7 @@ def get_constructor_standings(season:int, round:int | None = None) -> str:
     return json.dumps(data, default=str)
 
 @tool(parse_docstring=True)
+@_catch_fastf1_errors
 def get_race_results(season: int, round: int | str) -> str:
     """Get the classified results for a single race: grid/finish position, points, and status.
 
@@ -84,6 +119,7 @@ def get_race_results(season: int, round: int | str) -> str:
     return json.dumps(data, default=str)
 
 @tool(parse_docstring=True)
+@_catch_fastf1_errors
 def get_fastest_laps(season:int, round: int | str, session_type: str = "R", top_n: int = 5) -> str:
     """Get each driver's single fastest lap in a session, sorted quickest first.
 
@@ -99,6 +135,7 @@ def get_fastest_laps(season:int, round: int | str, session_type: str = "R", top_
     return json.dumps(data, default=str)
 
 @tool(parse_docstring=True)
+@_catch_fastf1_errors
 def get_season_schedule(season: int) -> str:
     """Get the race calendar for a season: round number, country, location, event name, date, and format (conventional or sprint weekend).
 
@@ -111,6 +148,7 @@ def get_season_schedule(season: int) -> str:
     return json.dumps(data, default=str)
 
 @tool(parse_docstring=True)
+@_catch_fastf1_errors
 def get_tire_strategy(season: int, round: int | str, session_type: str = "R") -> str:
     """Get the tire strategy for every driver for a particular session.
 
@@ -125,6 +163,7 @@ def get_tire_strategy(season: int, round: int | str, session_type: str = "R") ->
     return json.dumps(data, default=str)
 
 @tool(parse_docstring=True)
+@_catch_fastf1_errors
 def get_race_control_messages(season: int, round: int | str, session_type: str = "R", category: str = "All") -> str:
     """Get race control messages for a session.
 
@@ -140,6 +179,7 @@ def get_race_control_messages(season: int, round: int | str, session_type: str =
     return json.dumps(data, default=str)
 
 @tool(parse_docstring=True)
+@_catch_fastf1_errors
 def get_weather(season: int, round: int | str, session_type: str = "R") -> str:
     """Get a weather summary for a session: temperature range, average wind speed, and whether it rained at any point.
 
@@ -154,6 +194,7 @@ def get_weather(season: int, round: int | str, session_type: str = "R") -> str:
     return json.dumps(data, default=str)
 
 @tool(parse_docstring=True)
+@_catch_fastf1_errors
 def get_pit_stops(season: int, round: int | str, session_type: str = "R") -> str:
     """Get every pit stop made in a session, with how long each one cost.
 
@@ -168,6 +209,7 @@ def get_pit_stops(season: int, round: int | str, session_type: str = "R") -> str
     return json.dumps(data, default=str)
 
 @tool(parse_docstring=True)
+@_catch_fastf1_errors
 def get_circuit_strategy_history(circuit: str, since_season: int = 2018) -> str:
     """Get how often a Safety Car, Virtual Safety Car, or Red Flag has historically occurred at a given circuit, season by season.
 
@@ -181,6 +223,7 @@ def get_circuit_strategy_history(circuit: str, since_season: int = 2018) -> str:
     return json.dumps(data, default=str)
 
 @tool(parse_docstring=True)
+@_catch_fastf1_errors
 def get_circuit_speed_map(season: int, round: int | str, session_type: str = "R", driver: str | None = None) -> str:
     """Get a lap's track outline colored by speed, oriented to match the circuit's real-world layout - use this whenever the user wants to see or visualize what a track looks like.
 
@@ -196,6 +239,7 @@ def get_circuit_speed_map(season: int, round: int | str, session_type: str = "R"
     return json.dumps(data, default=str)
 
 @tool(parse_docstring=True)
+@_catch_fastf1_errors
 def get_all_time_driver_records(top_n: int = 10) -> str:
     """Get the top F1 drivers of all time by career championships and race wins, aggregated across every season since 1950.
 

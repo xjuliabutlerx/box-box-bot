@@ -1,8 +1,9 @@
+import logging
 import os
 import streamlit as st
 
 try:
-    for key in ("ANTHROPIC_API_KEY", "LANGSMITH_API_KEY", "LANGSMITH_TRACING", "LANGSMITH_PROJECT", "REQUIRE_PASSWORD", "APP_PASSWORDS"):
+    for key in ("ANTHROPIC_API_KEY", "LANGSMITH_API_KEY", "LANGSMITH_TRACING", "LANGSMITH_PROJECT", "REQUIRE_PASSWORD", "APP_PASSWORDS", "FASTF1_DEBUG_LOGGING"):
         if key in st.secrets:
             os.environ[key] = str(st.secrets[key])
 except Exception:
@@ -11,6 +12,10 @@ except Exception:
 from box_box_bot.agent.graph import build_agent
 from box_box_bot.agent.run import ask
 from box_box_bot.app import charts
+from box_box_bot.logging_config import configure_logging
+
+configure_logging()
+_logger = logging.getLogger(__name__)
 
 ASSISTANT_AVATAR = "🏁"
 
@@ -75,8 +80,10 @@ if os.environ.get("REQUIRE_PASSWORD", "false").strip().lower() == "true":
             }
             if entered_password in valid_passwords:
                 st.session_state.authenticated = True
+                _logger.info("Successful password auth")
                 st.rerun()
             else:
+                _logger.info("Failed password attempt")
                 st.error("Incorrect password.")
         st.stop()
 
@@ -175,8 +182,10 @@ if user_input := st.chat_input(
     # before this turn's message_count increment and cost update, so it
     # didn't reflect a limit this exact turn just hit
     if over_limit_now:
+        _logger.warning("Total cost cap hit: $%.4f", tracker["total_cost_usd"])
         st.error("This demo has hit its usage cap for now. Thanks for trying it out!")
     elif st.session_state.message_count >= MAX_MESSAGES_PER_SESSION:
+        _logger.info("Session %s hit its message limit", st.session_state.thread_id)
         st.warning(f"You've reached this session's {MAX_MESSAGES_PER_SESSION}-message demo limit.")
 
 st.caption(
