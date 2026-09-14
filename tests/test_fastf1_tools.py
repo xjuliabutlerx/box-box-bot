@@ -2,6 +2,8 @@ import json
 from unittest.mock import patch
 
 import pandas as pd
+import pytest
+from fastf1.exceptions import DataNotLoadedError
 
 from box_box_bot.tools.fastf1_tools import (
     FASTF1_TOOLS,
@@ -375,3 +377,37 @@ def test_get_circuit_speed_map_passes_driver_and_session_type_through():
         get_circuit_speed_map.invoke({"season": 2025, "round": "Bahrain", "session_type": "Q", "driver": "HAM"})
 
     mock_fn.assert_called_once_with(2025, "Bahrain", "Q", "HAM")
+
+
+def test_get_tire_strategy_returns_error_json_instead_of_raising():
+    # Regression: a pre-2018 season has f1_api_support=False, so fastf1's
+    # session.load() silently skips loading laps and session.laps raises
+    # DataNotLoadedError the moment it's touched - this must not crash
+    # the whole agent turn.
+    with patch(
+        "box_box_bot.tools.fastf1_tools.fastf1_client.get_tire_strategy",
+        side_effect=DataNotLoadedError("The data you are trying to access has not been loaded yet."),
+    ):
+        result = get_tire_strategy.invoke({"season": 2016, "round": 5})
+
+    parsed = json.loads(result)
+    assert "error" in parsed
+    assert "not been loaded yet" in parsed["error"]
+
+
+def test_get_race_results_returns_error_json_instead_of_raising():
+    with patch(
+        "box_box_bot.tools.fastf1_tools.fastf1_client.get_race_results",
+        side_effect=DataNotLoadedError("boom"),
+    ):
+        result = get_race_results.invoke({"season": 2016, "round": 5})
+
+    parsed = json.loads(result)
+    assert "error" in parsed
+
+
+@pytest.mark.parametrize("tool", FASTF1_TOOLS + STRATEGY_TOOLS)
+def test_every_fastf1_tool_is_wrapped_against_unhandled_exceptions(tool):
+    # Regression guard: a new fastf1-backed tool added without
+    # @_catch_fastf1_errors would reintroduce the whole-turn-crashing bug.
+    assert hasattr(tool.func, "__wrapped__")

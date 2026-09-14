@@ -1,8 +1,12 @@
+import logging
+
 from box_box_bot.agent.citations import extract_citations, filter_citations_by_answer
 from box_box_bot.agent.cost import estimate_cost
 from box_box_bot.agent.input_guard import check_input_safety
 from box_box_bot.agent.topic_gate import check_topic
 from box_box_bot.agent.visuals import extract_visuals
+
+_logger = logging.getLogger(__name__)
 
 OFF_TOPIC_MESSAGE = (
     "I can only help with Formula 1 questions - standings, race results, "
@@ -24,6 +28,7 @@ def _extract_text(content) -> str:
 def ask(agent, message: str, thread_id: str) -> dict:
     guard = check_input_safety(message)
     if not guard["safe"]:
+        _logger.info("Blocked unsafe input on thread %s (reason=%s)", thread_id, guard["reason"])
         return {
             "answer": UNSAFE_INPUT_MESSAGE,
             "citations": [],
@@ -39,6 +44,7 @@ def ask(agent, message: str, thread_id: str) -> dict:
 
     gate = check_topic(message, recent_context=recent_context)
     if not gate["on_topic"]:
+        _logger.info("Blocked off-topic message on thread %s", thread_id)
         return {
             "answer": OFF_TOPIC_MESSAGE,
             "citations": [],
@@ -51,11 +57,13 @@ def ask(agent, message: str, thread_id: str) -> dict:
 
     answer = _extract_text(result["messages"][-1].content)
     candidates = extract_citations(result["messages"])
+    usage = estimate_cost(result["messages"])
+    _logger.info("Completed turn on thread %s: cost=$%.4f", thread_id, usage["cost_usd"])
 
     return {
         "answer": answer,
         "citations": filter_citations_by_answer(candidates, answer),
         "visuals": extract_visuals(result["messages"]),
-        "usage": estimate_cost(result["messages"]),
+        "usage": usage,
         "blocked_reason": None,
     }
