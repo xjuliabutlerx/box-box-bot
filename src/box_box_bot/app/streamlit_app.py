@@ -2,7 +2,7 @@ import os
 import streamlit as st
 
 try:
-    for key in ("ANTHROPIC_API_KEY", "LANGSMITH_API_KEY", "LANGSMITH_TRACING", "LANGSMITH_PROJECT"):
+    for key in ("ANTHROPIC_API_KEY", "LANGSMITH_API_KEY", "LANGSMITH_TRACING", "LANGSMITH_PROJECT", "REQUIRE_PASSWORD", "APP_PASSWORD"):
         if key in st.secrets:
             os.environ[key] = str(st.secrets[key])
 except Exception:
@@ -25,12 +25,41 @@ def _render_visuals(visuals, key_prefix):
         elif visual["type"] == "track_map":
             st.plotly_chart(charts.build_track_map_figure(visual["data"]), key=key)
 
-st.set_page_config(page_title="BoxBoxBot", page_icon="🏁")
+st.set_page_config(page_title="BoxBoxBot", page_icon="🏁", layout="wide")
+# "wide" alone stretches to the full viewport; Streamlit's layout config
+# only offers "centered" (~730px) or "wide" (no cap) - nothing in
+# between - so this caps "wide" mode's container width instead of
+# fighting a competing built-in max-width rule.
+st.html("""
+<style>
+[data-testid="stMainBlockContainer"], [data-testid="stBottomBlockContainer"] {
+    max-width: 1200px;
+    margin-left: auto;
+    margin-right: auto;
+}
+</style>
+""")
+
 st.title("🏎️ BoxBoxBot")
 st.caption(
     "Box, box!\n\nI'm your multi-agent F1 pit wall strategist for standings, race results, pit strategy, and the stories behind them powered by live `fastf1` data, retrieval-augmented race recaps, and trained prediction models."
     "\n\nAsk about standings, results, tire strategy and safety cars, or the story behind a season."
 )
+
+# Password gate
+if os.environ.get("REQUIRE_PASSWORD", "false").strip().lower() == "true":
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
+
+    if not st.session_state.authenticated:
+        entered_password = st.text_input("Enter the password to continue", type="password")
+        if entered_password:
+            if entered_password == os.environ.get("APP_PASSWORD", ""):
+                st.session_state.authenticated = True
+                st.rerun()
+            else:
+                st.error("Incorrect password.")
+        st.stop()
 
 @st.cache_resource
 def get_agent():

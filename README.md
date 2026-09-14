@@ -320,6 +320,14 @@ loop, with two things worth calling out:
   - Neither is a perfectly airtight ceiling (see Failure modes below) —
     the real backstop is a spend limit set directly in the Anthropic
     Console, which holds regardless of anything the app does.
+- **Optional password gate**, a third and coarser layer in front of both
+  of the above: set `REQUIRE_PASSWORD=true` and `APP_PASSWORD=<something>`
+  (`.env` locally, the Secrets panel on Streamlit Cloud) to require a
+  password before the app renders at all — checked before `get_agent()`
+  or the chat UI ever run, so a visitor without the password can't
+  trigger any Anthropic spend, not just a capped amount of it. Off by
+  default, meant to be flipped purely via secrets (no redeploy) once a
+  publicly-shared link needs locking down.
 
 ### Deployment
 

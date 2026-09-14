@@ -8,6 +8,42 @@ from box_box_bot.data import fastf1_client
 #   parse_docstring=True means that LangChain will read the docstring Args block and attach it to the tool description schema
 #   The result of each tool should be a string because tool outputs are inserted into the model's context as text
 
+# fastf1/Ergast return every column/field they have, including plenty
+# that are never useful in an agent's response (headshot image URLs, hex team
+# colors, internal driver/team IDs, Wikipedia links).
+_RACE_RESULT_EXTRA_FIELDS = {
+    "DriverNumber", "BroadcastName", "DriverId", "TeamColor", "TeamId",
+    "FirstName", "LastName", "HeadshotUrl", "CountryCode",
+    # Always NaT here - get_race_results only ever loads the Race ('R')
+    # session, which has no qualifying times.
+    "Q1", "Q2", "Q3",
+}
+_STANDINGS_EXTRA_FIELDS = {"driverUrl", "constructorUrl", "constructorUrls"}
+
+def _drop_extra_fields(rows: list[dict], junk_fields: set[str]) -> list[dict]:
+    return [{k: v for k, v in row.items() if k not in junk_fields} for row in rows]
+
+def _summarize_weather(rows: list[dict]) -> dict:
+    # A session's weather is sampled roughly every minute - 100+ rows for
+    # a full race, meaningfully more detail than almost any conversational
+    # question needs ("was it hot," "did it rain") and expensive to carry
+    # in full through every weather-touching turn. Summarizing here keeps
+    # data/fastf1_client.py's own return value as the honest full-fidelity
+    # trace (nothing else needs it, but no reason to degrade the data
+    # layer's contract for an agent-only formatting concern).
+    if not rows:
+        return {"SampleCount": 0}
+    air_temps = [r["AirTemp"] for r in rows if r.get("AirTemp") is not None]
+    track_temps = [r["TrackTemp"] for r in rows if r.get("TrackTemp") is not None]
+    wind_speeds = [r["WindSpeed"] for r in rows if r.get("WindSpeed") is not None]
+    return {
+        "SampleCount": len(rows),
+        "AirTemp": {"min": min(air_temps), "max": max(air_temps), "avg": sum(air_temps) / len(air_temps)} if air_temps else None,
+        "TrackTemp": {"min": min(track_temps), "max": max(track_temps), "avg": sum(track_temps) / len(track_temps)} if track_temps else None,
+        "AvgWindSpeed": sum(wind_speeds) / len(wind_speeds) if wind_speeds else None,
+        "RainfallDuringSession": any(r.get("Rainfall") for r in rows),
+    }
+
 @tool(parse_docstring=True)
 def get_driver_standings(season:int, round:int | None = None) -> str:
     """Get F1 driver championship standings for a season.
@@ -18,7 +54,7 @@ def get_driver_standings(season:int, round:int | None = None) -> str:
         season: The four-digit F1 season year, e.g. 2023
         round: Race round number within the season. Omit for the latest or final standings.
     """
-    data = fastf1_client.get_driver_standings(season, round)
+    data = _drop_extra_fields(fastf1_client.get_driver_standings(season, round), _STANDINGS_EXTRA_FIELDS)
     return json.dumps(data, default=str)
 
 @tool(parse_docstring=True)
@@ -31,7 +67,7 @@ def get_constructor_standings(season:int, round:int | None = None) -> str:
         season: The four-digit F1 season year, e.g. 2023
         round: Race round number within the season. Omit for the latest or final standings.
     """
-    data = fastf1_client.get_constructor_standings(season, round)
+    data = _drop_extra_fields(fastf1_client.get_constructor_standings(season, round), _STANDINGS_EXTRA_FIELDS)
     return json.dumps(data, default=str)
 
 @tool(parse_docstring=True)
@@ -44,7 +80,7 @@ def get_race_results(season: int, round: int | str) -> str:
         season: The four-digit F1 season year, e.g. 2023
         round: Race round number within the season (e.g. 4), or the race name if you're not sure of the round number (e.g. "Bahrain", "Monaco", "Emilia Romagna Grand Prix") - this is fuzzy-matched against each event's country/location/name. Prefer passing the name over guessing a round number you aren't certain of.
     """
-    data = fastf1_client.get_race_results(season, round)
+    data = _drop_extra_fields(fastf1_client.get_race_results(season, round), _RACE_RESULT_EXTRA_FIELDS)
     return json.dumps(data, default=str)
 
 @tool(parse_docstring=True)
@@ -105,16 +141,16 @@ def get_race_control_messages(season: int, round: int | str, session_type: str =
 
 @tool(parse_docstring=True)
 def get_weather(season: int, round: int | str, session_type: str = "R") -> str:
-    """Get the weather data by roughly every minute for a session.
+    """Get a weather summary for a session: temperature range, average wind speed, and whether it rained at any point.
 
-    Use this to answer questions about whether a race was hot or cold, if there was rain fall, or when evaluating tire strategy.
+    Use this to answer questions about whether a race was hot or cold, if there was rain fall, or when evaluating tire strategy. This is a summary, not the full per-minute trace - it can't answer "what was the temperature at lap 30," only session-wide questions.
 
     Args:
         season: The four-digit F1 season year, e.g. 2023
         round: Race round number within the season (e.g. 4), or the race name if you're not sure of the round number (e.g. "Bahrain", "Monaco", "Emilia Romagna Grand Prix") - this is fuzzy-matched against each event's country/location/name. Prefer passing the name over guessing a round number you aren't certain of.
         session_type: The F1 session type. One of 'FP1', 'FP2', 'FP3' (practice), 'Q' (qualifying), 'R' (race), 'S' (sprint race). Sprint weekends also have a session that sets the sprint grid: pass 'SS' for 2023 events or 'SQ' for 2024+ events.
     """
-    data = fastf1_client.get_weather_for_session(season, round, session_type)
+    data = _summarize_weather(fastf1_client.get_weather_for_session(season, round, session_type))
     return json.dumps(data, default=str)
 
 @tool(parse_docstring=True)
