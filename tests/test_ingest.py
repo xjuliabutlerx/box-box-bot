@@ -71,3 +71,19 @@ def test_build_vectorstore_embeds_and_persists(recaps_dir, tmp_path, monkeypatch
     assert vectorstore._collection.count() >= 1
     results = vectorstore.similarity_search("Bahrain championship lead", k=1)
     assert results[0].metadata["race_name"] == "Bahrain Grand Prix"
+
+
+def test_build_vectorstore_is_idempotent_on_repeat_runs(recaps_dir, tmp_path, monkeypatch):
+    # Regression test: Chroma.from_documents() adds to an existing
+    # collection rather than replacing it - found live when re-running
+    # ingest.py against an already-populated persist_directory (the
+    # normal "rebuild after editing the corpus" case) silently doubled
+    # the chunk count instead of leaving it unchanged. Re-running the
+    # build against the same source files must produce the same count,
+    # not grow it.
+    monkeypatch.setattr(ingest, "RAG_PERSIST_DIR", tmp_path / "vectorstore")
+
+    first_count = ingest.build_vectorstore()._collection.count()
+    second_count = ingest.build_vectorstore()._collection.count()
+
+    assert second_count == first_count

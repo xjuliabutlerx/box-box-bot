@@ -19,6 +19,7 @@ LANGSMITH_PROJECT = os.environ.get("LANGSMITH_PROJECT", "box-box-bot")
 FASTF1_CACHE_DIR = PROJECT_ROOT / os.environ.get("FASTF1_CACHE_DIR", "data/cache")
 
 RACE_RECAPS_DIR = PROJECT_ROOT / "data" / "race_recaps"
+TRACK_INFO_DIR = PROJECT_ROOT / "data" / "track_info"
 RAG_PERSIST_DIR = PROJECT_ROOT / "data" / "vectorstore"
 
 # LangSmith reads these exact env var names, so mirror our .env names onto them.

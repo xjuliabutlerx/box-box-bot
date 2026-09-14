@@ -20,6 +20,7 @@ venv/
 # Secrets / env
 .env
 .env.local
+.streamlit/secrets.toml
 
 # fastf1 cache (large binary cache files, regenerate locally)
 data/cache/

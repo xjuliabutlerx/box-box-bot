@@ -17,6 +17,7 @@ pyyaml==6.0.3
 python-dotenv
 
 streamlit
+plotly==7.0.0
 
 # so `pip install -r requirements.txt` alone (what Streamlit Cloud runs)
 # also makes box_box_bot importable, without a separate `pip install -e .` step

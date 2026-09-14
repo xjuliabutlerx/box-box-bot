@@ -59,7 +59,8 @@ src/box_box_bot/
     streamlit_app.py    # chat UI, session memory wiring, cost guardrails
 data/
   cache/            # fastf1 disk cache (gitignored, rebuilds on first fetch)
-  race_recaps/      # 12 original recap docs (2025 title fight + 2026 so far)
+  race_recaps/      # 36 original recap docs (2016-2024 history, 2025 title fight, 2026 so far)
+  track_info/       # 23 circuit profiles (qualitative track character, for strategist_agent)
   vectorstore/      # persisted Chroma index (gitignored, rebuild via ingest.py)
 ```
 
@@ -104,6 +105,21 @@ cached.
 - `get_race_results(season, round)`
 - `get_fastest_laps(season, round, session_type="R", top_n=5)`
 - `get_season_schedule(season)`
+- `get_pit_stops(season, round, session_type="R")` — per-stop
+  `PitLaneTime` (full pit-lane transit, not the on-camera stationary
+  time), derived from `session.laps`'s `PitInTime`/`PitOutTime` since
+  fastf1 has no precomputed stop-duration field.
+- `get_circuit_strategy_history(circuit, since_season=2018)` — walks
+  every season at a circuit since fastf1's 2018 full-timing cutoff and
+  reports how often a Safety Car/VSC/Red Flag has occurred there,
+  cached per circuit.
+- `get_circuit_speed_map(season, round, session_type="R", driver=None, max_points=400)`
+  — a lap's track outline colored by speed, rotated to match the real
+  circuit orientation. fastf1 has no bundled track-outline dataset, so
+  this comes from a lap's own position telemetry (`Lap.get_telemetry()`)
+  rather than `get_circuit_info()` (corner markers only). Downsampled to
+  `max_points` before returning — full lap telemetry is far more detail
+  than a plot (or the LLM's context) needs.
 
 Standings come from `fastf1.ergast` (session objects don't carry cumulative
 championship state); race results, lap data, and the race calendar come
@@ -111,13 +127,20 @@ from `fastf1.get_session(...).load()` and `fastf1.get_event_schedule(...)`.
 
 ## RAG layer
 
-`data/race_recaps/` holds 12 original recap documents (see its own README
-for the full list and sourcing notes) covering the 2025 title fight and the
-2026 season so far. `rag/ingest.py` chunks them (`RecursiveCharacterTextSplitter`,
-500 chars / 50 overlap) and embeds each chunk locally via `fastembed`
-(`BAAI/bge-small-en-v1.5`, no API key, no network calls after the first
-model download) into a persisted Chroma collection. `rag/retriever.py`
-opens that collection and returns a standard LangChain retriever.
+`data/race_recaps/` holds 36 original recap documents (see its own README
+for the full list and sourcing notes) covering real F1 history from
+2016-2024 (only the races that actually mattered for a season's story),
+the 2025 title fight, and the 2026 season so far. `data/track_info/` holds
+23 circuit profile documents (qualitative track character, not
+race-specific - see its own README) backing `strategist_agent`'s
+`search_track_info` tool. `rag/ingest.py` chunks each corpus
+(`RecursiveCharacterTextSplitter`, 500 chars / 50 overlap) and embeds each
+chunk locally via `fastembed` (`BAAI/bge-small-en-v1.5`, no API key, no
+network calls after the first model download) into its own named
+collection within a shared persisted Chroma store - `race_recaps` and
+`track_info` are kept separate so a query for one corpus never pulls in
+the other's chunks. `rag/retriever.py` opens either collection and
+returns a standard LangChain retriever.
 
 Rebuild the index after editing the corpus:
 
@@ -151,14 +174,19 @@ reverse-engineering sources after the fact.
 
 box-box-bot is a multi-agent system built with `langgraph-supervisor`:
 `agent/graph.py`'s `build_agent()` builds a supervisor that delegates to
-two specialist sub-agents, each its own `langchain.agents.create_agent`
+four specialist sub-agents, each its own `langchain.agents.create_agent`
 instance with its own tools and system prompt —
-`agent/stats_agent.py` (fastf1 tools, for factual/numeric questions) and
-`agent/narrative_agent.py` (the RAG tool, for "why"/"what happened"
-questions). The supervisor's own prompt decides which specialist(s) a
-question needs and composes the final answer from what they return; a
+`agent/stats_agent.py` (fastf1 facts/numbers), `agent/narrative_agent.py`
+(the RAG tool, for broad "why"/"what happened" storyline questions),
+`agent/predictor_agent.py` (trained models for "who will win"), and
+`agent/strategist_agent.py` (tire strategy, pit stops, safety cars, and
+weather, for tactical in-race "why"/"how" questions like whether an
+undercut worked). The supervisor's own prompt decides which specialist(s)
+a question needs and composes the final answer from what they return; a
 question like "how did the standings change after Monza and why" hits
-both in one turn. `agent/run.py`'s `ask(agent, message, thread_id)` is
+both `stats_agent` and `narrative_agent` in one turn, and "what actually
+happened in the title fight, and was strategy the deciding factor" hits
+`narrative_agent` and `strategist_agent`. `agent/run.py`'s `ask(agent, message, thread_id)` is
 still the interface everything else calls, unchanged by this — invoke,
 extract the answer text (Claude Sonnet 5 returns content as a list of
 thinking/text blocks when tools are involved, not a plain string),
@@ -203,6 +231,26 @@ Splitting it this way means citations are true to what the model actually
 used, not just what got retrieved — a retrieved-but-unused chunk (see the
 RAG retrieval-precision limitation above) doesn't show up as a false
 citation.
+
+### Visuals
+
+`agent/visuals.py::extract_visuals(messages)` generalizes the same
+ground-truth-from-the-tool-result idea citations already established,
+for tables and charts instead of source tags. Most tools already return
+`list[dict]` JSON, so any such result becomes a generic table with no
+per-tool allowlist to maintain; `get_tire_strategy` and
+`get_circuit_speed_map` override that with a specific chart type
+instead. Unlike citations, this doesn't filter by whether the model's
+answer text mentions it — every tool call this turn is a deliberate,
+targeted lookup, not RAG's noisier top-k retrieval.
+
+`app/charts.py` turns that structured data into an actual
+`plotly.graph_objects.Figure`/`pd.DataFrame` — kept Streamlit-free on
+purpose so it's unit-testable, unlike `app/streamlit_app.py` itself.
+`streamlit_app.py` stores each turn's `visuals` list in
+`st.session_state` (plain JSON-safe data, same as citations) and rebuilds
+the actual figure from it on every rerun, rather than holding a live
+Streamlit-adjacent object across reruns.
 
 ### Cost estimation
 
@@ -280,6 +328,17 @@ loop, with two things worth calling out:
   - Neither is a perfectly airtight ceiling (see Failure modes below) —
     the real backstop is a spend limit set directly in the Anthropic
     Console, which holds regardless of anything the app does.
+- **Optional password gate**, a third and coarser layer in front of both
+  of the above: set `REQUIRE_PASSWORD=true` and
+  `APP_PASSWORDS=<something>,<something-else>` (`.env` locally, the
+  Secrets panel on Streamlit Cloud) to require a password before the app
+  renders at all — checked before `get_agent()` or the chat UI ever run,
+  so a visitor without the password can't trigger any Anthropic spend,
+  not just a capped amount of it. `APP_PASSWORDS` is a comma-separated
+  list, not a single value — different people can each get their own
+  password with no code changes. Off by default, meant to be flipped
+  purely via secrets (no redeploy) once a publicly-shared link needs
+  locking down.
 
 ### Deployment
 

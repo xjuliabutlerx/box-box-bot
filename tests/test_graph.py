@@ -70,7 +70,7 @@ def test_build_agent_passes_all_specialists():
 
         (agents,), _ = mock_create_supervisor.call_args
         names = {agent.name for agent in agents}
-        assert names == {"stats_agent", "narrative_agent", "predictor_agent"}
+        assert names == {"stats_agent", "narrative_agent", "predictor_agent", "strategist_agent"}
 
 
 def test_build_agent_compiles_with_checkpointer():
