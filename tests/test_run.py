@@ -88,7 +88,7 @@ def test_ask_extracts_citations_from_tool_results():
     with patch("box_box_bot.agent.run.check_topic", return_value={"on_topic": True, "cost_usd": 0.0}):
         result = ask(fake_agent, "Why did Bahrain matter?", "thread-1")
 
-    assert result["citations"] == [{"race_name": "Bahrain Grand Prix", "season": 2025}]
+    assert result["citations"] == [{"type": "race", "race_name": "Bahrain Grand Prix", "season": 2025}]
 
 
 def test_ask_extracts_visuals_from_tool_results():

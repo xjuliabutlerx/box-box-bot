@@ -59,7 +59,8 @@ src/box_box_bot/
     streamlit_app.py    # chat UI, session memory wiring, cost guardrails
 data/
   cache/            # fastf1 disk cache (gitignored, rebuilds on first fetch)
-  race_recaps/      # 12 original recap docs (2025 title fight + 2026 so far)
+  race_recaps/      # 36 original recap docs (2016-2024 history, 2025 title fight, 2026 so far)
+  track_info/       # 23 circuit profiles (qualitative track character, for strategist_agent)
   vectorstore/      # persisted Chroma index (gitignored, rebuild via ingest.py)
 ```
 
@@ -126,13 +127,20 @@ from `fastf1.get_session(...).load()` and `fastf1.get_event_schedule(...)`.
 
 ## RAG layer
 
-`data/race_recaps/` holds 12 original recap documents (see its own README
-for the full list and sourcing notes) covering the 2025 title fight and the
-2026 season so far. `rag/ingest.py` chunks them (`RecursiveCharacterTextSplitter`,
-500 chars / 50 overlap) and embeds each chunk locally via `fastembed`
-(`BAAI/bge-small-en-v1.5`, no API key, no network calls after the first
-model download) into a persisted Chroma collection. `rag/retriever.py`
-opens that collection and returns a standard LangChain retriever.
+`data/race_recaps/` holds 36 original recap documents (see its own README
+for the full list and sourcing notes) covering real F1 history from
+2016-2024 (only the races that actually mattered for a season's story),
+the 2025 title fight, and the 2026 season so far. `data/track_info/` holds
+23 circuit profile documents (qualitative track character, not
+race-specific - see its own README) backing `strategist_agent`'s
+`search_track_info` tool. `rag/ingest.py` chunks each corpus
+(`RecursiveCharacterTextSplitter`, 500 chars / 50 overlap) and embeds each
+chunk locally via `fastembed` (`BAAI/bge-small-en-v1.5`, no API key, no
+network calls after the first model download) into its own named
+collection within a shared persisted Chroma store - `race_recaps` and
+`track_info` are kept separate so a query for one corpus never pulls in
+the other's chunks. `rag/retriever.py` opens either collection and
+returns a standard LangChain retriever.
 
 Rebuild the index after editing the corpus:
 

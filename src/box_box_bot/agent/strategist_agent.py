@@ -3,6 +3,9 @@ from langchain.agents.middleware import dynamic_prompt
 
 from box_box_bot.agent.time_context import current_date_context
 from box_box_bot.tools.fastf1_tools import STRATEGY_TOOLS
+from box_box_bot.tools.rag_tools import TRACK_INFO_TOOLS
+
+STRATEGIST_TOOLS = STRATEGY_TOOLS + TRACK_INFO_TOOLS
 
 STRATEGIST_SYSTEM_PROMPT = """You are box-box-bot's strategy specialist -
 think and talk like an engineer on the pit wall, not a stats sheet.
@@ -34,6 +37,15 @@ sake:
   expectations for a track - e.g. how often a Safety Car has historically
   shown up there, which affects how much a team plans around one. This
   is a deliberate historical lookup, not something to run by default.
+- Use search_track_info for qualitative circuit character - why a track
+  is hard to overtake at, its tire degradation tendencies, elevation,
+  DRS zones, typical one-stop-vs-two-stop pattern. None of your other
+  tools capture this kind of static circuit knowledge (they're all
+  session/race-specific data), so a "what makes [track] difficult" or
+  "how should teams approach strategy at [track]" question needs this
+  tool specifically, not just get_circuit_strategy_history's SC/VSC
+  stats - those two tools answer different questions and often belong
+  together for a track-character question.
 
 When the user wants to see or visualize what a track looks like, use
 get_circuit_speed_map. It produces an actual visual for the user (a
@@ -67,7 +79,7 @@ def _strategist_prompt(request) -> str:
 def build_strategist_agent(model):
     return create_agent(
         model,
-        STRATEGY_TOOLS,
+        STRATEGIST_TOOLS,
         middleware=[_strategist_prompt],
         name="strategist_agent",
     )

@@ -25,6 +25,17 @@ def _render_visuals(visuals, key_prefix):
         elif visual["type"] == "track_map":
             st.plotly_chart(charts.build_track_map_figure(visual["data"]), key=key)
 
+
+def _format_citation(citation):
+    if citation["type"] == "race":
+        return f"{citation['race_name']} ({citation['season']})"
+    return f"{citation['circuit']} (track info)"
+
+
+def _render_citations(citations):
+    sources = ", ".join(_format_citation(c) for c in citations)
+    st.caption(f"_Sources: {sources}_")
+
 st.set_page_config(page_title="BoxBoxBot", page_icon="🏁", layout="wide")
 # "wide" alone stretches to the full viewport; Streamlit's layout config
 # only offers "centered" (~730px) or "wide" (no cap) - nothing in
@@ -43,7 +54,7 @@ st.html("""
 st.title("🏎️ BoxBoxBot")
 st.caption(
     "Box, box!\n\nI'm your multi-agent F1 pit wall strategist for standings, race results, pit strategy, and the stories behind them powered by live `fastf1` data, retrieval-augmented race recaps, and trained prediction models."
-    "\n\nAsk about standings, results, tire strategy and safety cars, or the story behind a season."
+    "\n\nAsk about standings, results, tire strategy and safety cars, or the story behind a season (narrative deep-dives cover select races from 2016-2026)."
 )
 
 # Password gate
@@ -98,8 +109,7 @@ for idx, message in enumerate(st.session_state.messages):
         if message.get("visuals"):
             _render_visuals(message["visuals"], key_prefix=f"history-{idx}")
         if message.get("citations"):
-            sources = ", ".join(f"{c['race_name']} ({c['season']})" for c in message["citations"])
-            st.caption(f"_Sources: {sources}_")
+            _render_citations(message["citations"])
 
 tracker = get_usage_tracker()
 with tracker["lock"]:  # scoped to this in-memory read only - never held across the slow ask() call below
@@ -134,8 +144,7 @@ if user_input := st.chat_input(
         if result["visuals"]:
             _render_visuals(result["visuals"], key_prefix=f"live-{st.session_state.message_count}")
         if result["citations"]:
-            sources = ", ".join(f"{c['race_name']} ({c['season']})" for c in result["citations"])
-            st.caption(f"_Sources: {sources}_")
+            _render_citations(result["citations"])
 
     st.session_state.messages.append({
         "role": "assistant",
