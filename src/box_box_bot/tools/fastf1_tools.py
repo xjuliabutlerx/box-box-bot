@@ -114,6 +114,24 @@ def _catch_fastf1_errors(func):
                     "user this data isn't available rather than guessing an answer."
                 )
             else:
+                # Not a future-session case - most likely a transient
+                # fetch failure (fastf1 swallows network hiccups from its
+                # own live-timing feed internally and leaves the data
+                # simply unset rather than raising a distinguishable
+                # error - see logging_config.py's note on this). A cold
+                # Streamlit Cloud container hits this far more than a
+                # warm local cache does. One identical retry is cheap
+                # and often just works, rather than making a genuinely
+                # available race look permanently broken.
+                try:
+                    return func(*args, **kwargs)
+                except Exception as retry_exc:
+                    _logger.warning(
+                        "%s retry also failed (args=%s kwargs=%s): %s",
+                        func.__name__, args, kwargs, retry_exc, exc_info=True,
+                    )
+                    exc = retry_exc
+
                 error_message = (
                     f"Could not load this data: {exc}. This can happen for a "
                     "session that hasn't happened yet, a season before "
