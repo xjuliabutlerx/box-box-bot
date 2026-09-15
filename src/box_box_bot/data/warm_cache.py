@@ -41,11 +41,14 @@ cheap:
   block, Race only - these are fixed historical results that will
   never change, so caching once covers them permanently.
 
-`warm_latest_round_telemetry()` is separate and opt-in: it warms
-telemetry for just the single most recent completed round, so
-get_circuit_speed_map still works for at least the circuit most likely
-to come up in conversation, without paying the per-session telemetry
-cost across the whole season.
+`warm_current_season_telemetry()` is separate: it warms Race-session
+telemetry for every completed round of the current season, so
+get_circuit_speed_map - and the "always show a circuit visualization
+for a fastest-lap question" behavior in SUPERVISOR_PROMPT - work for
+any race this season, not just the most recent one. This is the most
+expensive pass (~100-150MB per round, ~1.5GB for a full season) - a
+deliberate size/coverage tradeoff, not something to extend to the
+historical race_recaps races too without reconsidering it.
 
 Re-run this after each new round of the current season completes to
 keep the deployed app's coverage current - it's additive (skips
@@ -115,15 +118,12 @@ def warm_recap_races() -> None:
         _warm_session(season, round_number, "R", telemetry=False)
 
 
-def warm_latest_round_telemetry(season: int | None = None) -> None:
+def warm_current_season_telemetry(season: int | None = None) -> None:
     season = season or datetime.date.today().year
     rounds = _completed_rounds(season)
-    if not rounds:
-        print(f"No completed rounds of {season} yet - nothing to warm telemetry for.")
-        return
-    latest = max(rounds)
-    print(f"Warming telemetry for {season} round {latest} (Race only)...")
-    _warm_session(season, latest, "R", telemetry=True)
+    print(f"Warming telemetry for {len(rounds)} completed round(s) of {season} (Race only)...")
+    for round_number in rounds:
+        _warm_session(season, round_number, "R", telemetry=True)
 
 
 if __name__ == "__main__":
@@ -131,4 +131,4 @@ if __name__ == "__main__":
     print()
     warm_recap_races()
     print()
-    warm_latest_round_telemetry()
+    warm_current_season_telemetry()
