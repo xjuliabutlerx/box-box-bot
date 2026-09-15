@@ -22,8 +22,9 @@ venv/
 .env.local
 .streamlit/secrets.toml
 
-# fastf1 cache (large binary cache files, regenerate locally)
-data/cache/
+# cached data to reduce latency and include
+# data that can't be fetched during runtime
+data/cache/fastf1_http_cache.sqlite*
 
 # local testing
 local/

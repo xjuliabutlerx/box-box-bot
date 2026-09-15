@@ -26,16 +26,22 @@ Three categories of fidelity, documented rather than hidden:
    classification (DriverFaultDNFRate vs MechanicalDNFRate) - the source
    classifies by status-string keyword, but the exact keyword list
    wasn't confirmed, so this uses a reasonable common-F1-status mapping.
-3. Disclosed simplifications (true career-spanning computation would be
-   prohibitively expensive per live request): CareerRoundsRaced and
-   TeamRoundsWithCurrentTeam use within-*this*-season cumulative counts
-   rather than a true multi-decade race-by-race career total (which
-   would need walking every driver's full result history back to 1950,
-   not just season-level standings). CareerSeasonsRaced and
-   TeamSeasonsWithCurrentTeam ARE computed as true career values (see
-   _get_career_history) since that only needs one Ergast call per season
-   (cheap, same pattern as fastf1_client.get_all_time_driver_records),
-   not per round.
+3. Disclosed simplifications (true career-spanning computation is
+   prohibitively expensive and unreliable per live request):
+   CareerRoundsRaced and TeamRoundsWithCurrentTeam use within-*this*-
+   season cumulative counts rather than a true multi-decade race-by-
+   race career total. CareerSeasonsRaced and TeamSeasonsWithCurrentTeam
+   (see _career_history) were originally computed as true career values
+   back to 1950 (one Ergast call per season, ~76 of them) but that walk
+   proved unreliable in production - enough sequential calls to
+   regularly trip Jolpica's rate limiting, even when warmed proactively
+   at startup rather than mid-request. Bounded to
+   CAREER_HISTORY_LOOKBACK_SEASONS (currently 5) instead: this can't
+   distinguish a 10-year veteran from a 20-year one, but does
+   distinguish a rookie/sophomore from an established driver, the
+   dominant real signal these features exist to capture. The ported
+   model's weights were calibrated against the true value, so this is a
+   deliberate accuracy-for-reliability tradeoff, not a neutral change.
 """
 
 import threading
@@ -44,8 +50,16 @@ import numpy as np
 import pandas as pd
 
 from box_box_bot.data import fastf1_client
-from box_box_bot.data.fastf1_client import FIRST_F1_SEASON
 from box_box_bot.predictor.features import _completed_rounds_and_total, _normalize_team_ids, get_team_features
+
+# A true career-spanning walk (every season since 1950) needs one Ergast
+# call per season - ~76 of them, sequentially, which is enough to
+# reliably trip Jolpica's rate limiting on a cold server (live-observed:
+# 61 separate 429s in a single walk, and it can fail even when this is
+# warmed proactively at startup rather than mid-request). Bounding the
+# walk to a short recent window instead trades exact career length for
+# reliability - see _career_history's docstring for what this costs.
+CAREER_HISTORY_LOOKBACK_SEASONS = 5
 
 TEAM_ID_VOCAB = [
     "alpine", "aston_martin", "ferrari", "haas", "mclaren",
@@ -138,13 +152,27 @@ def _add_teammate_features(df: pd.DataFrame) -> pd.DataFrame:
 def _career_history() -> dict:
     """driverId -> {"seasons": {year, ...}, "team_seasons": {teamId: {year, ...}}}.
 
-    Cheap relative to a per-round walk (one Ergast call per season, same
-    pattern as fastf1_client.get_all_time_driver_records), so this is
-    computed as true career history rather than approximated.
+    Approximated over the last CAREER_HISTORY_LOOKBACK_SEASONS seasons,
+    not every season since 1950 - walking the true full career needed
+    ~76 sequential Ergast calls, unreliable enough in production to be
+    worse than the accuracy this trades away (see the constant's own
+    comment). A short window can't tell a 10-year veteran from a
+    20-year one, but it does tell a rookie/sophomore (absent from most
+    of the window) from an established driver (present in most of it),
+    which is the dominant signal CareerSeasonsRaced/
+    TeamSeasonsWithCurrentTeam exist to capture. The ported model's
+    weights were calibrated against the true career-spanning value, so
+    this is a deliberate fidelity tradeoff, not a neutral change - see
+    the module docstring's fidelity categories.
     """
     history: dict = {}
-    for year in range(FIRST_F1_SEASON, pd.Timestamp.now().year + 1):
-        standings = fastf1_client.get_driver_standings(year)
+    current_year = pd.Timestamp.now().year
+    lookback_start = current_year - CAREER_HISTORY_LOOKBACK_SEASONS + 1
+    for year in range(lookback_start, current_year + 1):
+        try:
+            standings = fastf1_client.get_driver_standings(year)
+        except Exception:
+            continue
         for row in standings:
             entry = history.setdefault(row["driverId"], {"seasons": set(), "team_seasons": {}})
             entry["seasons"].add(year)

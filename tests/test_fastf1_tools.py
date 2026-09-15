@@ -398,6 +398,35 @@ def test_get_tire_strategy_returns_error_json_instead_of_raising():
     assert "not been loaded yet" in parsed["error"]
 
 
+def test_get_fastest_laps_retries_once_and_succeeds_after_a_transient_failure():
+    # Regression: live-observed - fastf1 swallows a transient fetch
+    # failure from its own live-timing feed internally (see
+    # logging_config.py) and just leaves the data unset rather than
+    # raising something distinguishable, so a genuinely available race
+    # can fail on a cold container's first attempt. A single identical
+    # retry is cheap and often just works, instead of telling the user
+    # data isn't available for a race that actually has it.
+    fake_data = [{"Driver": "VER", "LapTime": "0 days 00:01:29.708000"}]
+    call_count = 0
+
+    def _side_effect(season, round, session_type, top_n):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise DataNotLoadedError("The data you are trying to access has not been loaded yet.")
+        return fake_data
+
+    with patch(
+        "box_box_bot.tools.fastf1_tools.fastf1_client.get_fastest_laps", side_effect=_side_effect
+    ), patch(
+        "box_box_bot.tools.fastf1_tools.fastf1_client.get_season_schedule", return_value=[]
+    ):
+        result = get_fastest_laps.invoke({"season": 2026, "round": "Monza", "session_type": "R", "top_n": 1})
+
+    assert call_count == 2
+    assert json.loads(result) == fake_data
+
+
 def test_get_race_results_returns_error_json_instead_of_raising():
     with patch(
         "box_box_bot.tools.fastf1_tools.fastf1_client.get_race_results",

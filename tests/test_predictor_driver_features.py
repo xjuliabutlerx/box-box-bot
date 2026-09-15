@@ -198,3 +198,55 @@ def test_get_driver_features_caches_per_season():
         driver_features.get_driver_features(SEASON)
 
     assert call_count == first_call_count  # second call served from cache, no new fetches
+
+
+def test_career_history_skips_a_season_whose_request_fails():
+    # Regression: a single failed season's request must not crash the
+    # whole walk, or leave _career_history_cache permanently
+    # unpopulated (forcing every future prediction request to retry
+    # the whole lookback window from scratch and risk hitting the same
+    # wall again).
+    driver_features._career_history_cache = None
+
+    def _side_effect(year):
+        if year == 2024:
+            raise Exception("Too Many Requests")
+        return [{"driverId": "driver_a", "constructorIds": ["team_a"]}]
+
+    with (
+        patch("box_box_bot.predictor.driver_features.fastf1_client.get_driver_standings", side_effect=_side_effect),
+        patch("box_box_bot.predictor.driver_features.CAREER_HISTORY_LOOKBACK_SEASONS", 3),
+        patch("box_box_bot.predictor.driver_features.pd.Timestamp") as mock_timestamp,
+    ):
+        mock_timestamp.now.return_value.year = 2025
+        history = driver_features._get_career_history()
+
+    # window is 2023-2025; 2024 raised and was skipped, 2023 and 2025 contributed.
+    assert history["driver_a"]["seasons"] == {2023, 2025}
+    assert driver_features._career_history_cache is not None
+
+
+def test_career_history_is_bounded_to_the_lookback_window():
+    # Regression: _career_history() originally walked every season back
+    # to 1950 (~76 sequential Ergast calls) to build true career-length
+    # context for the ranking model - reliably enough to trip Jolpica's
+    # rate limiting in production (61 separate 429s in one live-observed
+    # walk) that it's now deliberately approximated over a short recent
+    # window instead. This must stay bounded to that window, not creep
+    # back into a full historical walk.
+    driver_features._career_history_cache = None
+    seasons_requested = []
+
+    def _side_effect(year):
+        seasons_requested.append(year)
+        return []
+
+    with (
+        patch("box_box_bot.predictor.driver_features.fastf1_client.get_driver_standings", side_effect=_side_effect),
+        patch("box_box_bot.predictor.driver_features.CAREER_HISTORY_LOOKBACK_SEASONS", 5),
+        patch("box_box_bot.predictor.driver_features.pd.Timestamp") as mock_timestamp,
+    ):
+        mock_timestamp.now.return_value.year = 2026
+        driver_features._get_career_history()
+
+    assert sorted(seasons_requested) == [2022, 2023, 2024, 2025, 2026]
