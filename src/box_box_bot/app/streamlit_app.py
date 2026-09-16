@@ -3,7 +3,7 @@ import os
 import streamlit as st
 
 try:
-    for key in ("ANTHROPIC_API_KEY", "LANGSMITH_API_KEY", "LANGSMITH_TRACING", "LANGSMITH_PROJECT", "REQUIRE_PASSWORD", "APP_PASSWORDS", "FASTF1_DEBUG_LOGGING"):
+    for key in ("ANTHROPIC_API_KEY", "LANGSMITH_API_KEY", "LANGSMITH_TRACING", "LANGSMITH_PROJECT", "REQUIRE_PASSWORD", "APP_PASSWORDS", "FASTF1_DEBUG_LOGGING", "APP_ENV"):
         if key in st.secrets:
             os.environ[key] = str(st.secrets[key])
 except Exception:
@@ -68,10 +68,24 @@ st.html("""
 """)
 
 st.title("🏎️ BoxBoxBot")
-st.caption(
-    "Box, box!\n\nI'm your multi-agent F1 pit wall assistant for standings, race results, pit strategy, and the stories behind them powered by real `fastf1` session data, retrieval-augmented race recaps, and trained prediction models."
-    "\n\nAsk about standings, results, tire strategy and safety cars, or the story behind a season (narrative deep-dives cover select races from 2016-2026)."
-)
+# Locally, every request hits F1's servers directly and always succeeds, so
+# the "live data" framing is accurate there. On Streamlit Cloud (or any
+# other deployed host), F1 blocks datacenter IPs - the deployed app can
+# only answer from pre-warmed, committed cache (data/warm_cache.py) - so
+# claiming "live" there sets an expectation the app can't meet for any
+# race outside that cache.
+if os.environ.get("APP_ENV", "deployed").strip().lower() == "local":
+    st.caption(
+        "Box, box!"
+        "\n\nI'm your multi-agent F1 pit wall assistant for standings, race results, pit strategy, and the stories behind them powered by live `fastf1` data, retrieval-augmented race recaps, and trained prediction models."
+        "\n\nAsk about standings, results, tire strategy and safety cars, or the story behind a season (narrative deep-dives cover select races from 2016-2026)."
+    )
+else:
+    st.caption(
+        "Box, box!"
+        "\n\nI'm your multi-agent F1 pit wall assistant for standings, race results, pit strategy, and the stories behind them powered by real `fastf1` session data, retrieval-augmented race recaps, and trained prediction models."
+        "\n\nStandings and all-time records are available for any season. For full race detail (results, fastest laps, tire strategy, safety-car history, and visualizations), I'm at my best on the current season and a curated set of classic races. Other specific races may have limited data available."
+    )
 
 # Password gate
 if os.environ.get("REQUIRE_PASSWORD", "false").strip().lower() == "true":
