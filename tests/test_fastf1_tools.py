@@ -211,14 +211,37 @@ def test_get_season_schedule_calls_data_layer_and_returns_json():
             "Location": "Sakhir",
             "EventName": "Bahrain Grand Prix",
             "EventFormat": "conventional",
-            "EventDate": "2025-04-13",
+            "EventDate": datetime.date(2020, 4, 13),
         }
     ]
     with patch("box_box_bot.tools.fastf1_tools.fastf1_client.get_season_schedule", return_value=fake_data) as mock_fn:
         result = get_season_schedule.invoke({"season": 2025})
 
     mock_fn.assert_called_once_with(2025)
-    assert json.loads(result) == fake_data
+    result_data = json.loads(result)
+    assert result_data[0]["EventName"] == "Bahrain Grand Prix"
+    assert result_data[0]["IsCompleted"] is True
+
+
+def test_get_season_schedule_marks_a_future_race_as_not_completed():
+    # Regression: a live test asking about "the most recent race" picked
+    # the wrong round because the model had to eyeball-compare every
+    # row's EventDate against today's date itself. IsCompleted is
+    # computed here, in code, specifically so the model never has to.
+    fake_data = [
+        {
+            "RoundNumber": 15,
+            "Country": "Azerbaijan",
+            "Location": "Baku",
+            "EventName": "Azerbaijan Grand Prix",
+            "EventFormat": "conventional",
+            "EventDate": datetime.date(2099, 1, 1),
+        }
+    ]
+    with patch("box_box_bot.tools.fastf1_tools.fastf1_client.get_season_schedule", return_value=fake_data):
+        result = get_season_schedule.invoke({"season": 2026})
+
+    assert json.loads(result)[0]["IsCompleted"] is False
 
 
 def test_get_tire_strategy_calls_data_layer_and_returns_json():
