@@ -40,6 +40,17 @@ cheap:
 - Every (season, round) already named in a race_recaps frontmatter
   block, Race only - these are fixed historical results that will
   never change, so caching once covers them permanently.
+- STRATEGY_HISTORY_CIRCUITS: circuits get_circuit_strategy_history is
+  likely to be asked about for "general strategy" questions but that
+  have no race_recaps entry at all (so warm_recap_races() alone doesn't
+  cover them) - warmed across every season since
+  fastf1_client.FIRST_DETAILED_TIMING_SEASON (2018), since that tool
+  walks that same full range. Live-reported gap: a demo run asked about
+  Baku, which isn't referenced by any recap, and failed entirely on the
+  deployed app (no cached data, and the IP block prevents fetching it
+  live) even though the exact same question worked fine locally, where
+  an uncached call just silently live-fetches instead of failing - local
+  testing looking correct is not proof the deployed app has the data.
 
 `warm_current_season_telemetry()` is separate: it warms Race-session
 telemetry for every completed round of the current season, so
@@ -62,6 +73,13 @@ import fastf1
 
 from box_box_bot.config import RACE_RECAPS_DIR
 from box_box_bot.data import fastf1_client
+
+# Circuits worth having full get_circuit_strategy_history coverage for
+# even though no race_recaps entry references them - add a circuit here
+# the moment a "general strategy at X" question is expected to come up
+# for it (e.g. via a demo script), rather than discovering the gap only
+# when the deployed app fails on it.
+STRATEGY_HISTORY_CIRCUITS = ["Baku"]
 
 
 def _warm_session(season: int, round_value, session_type: str, telemetry: bool) -> bool:
@@ -126,9 +144,21 @@ def warm_current_season_telemetry(season: int | None = None) -> None:
         _warm_session(season, round_number, "R", telemetry=True)
 
 
+def warm_strategy_history_circuits() -> None:
+    current_year = datetime.date.today().year
+    seasons = range(fastf1_client.FIRST_DETAILED_TIMING_SEASON, current_year + 1)
+    print(f"Warming {len(STRATEGY_HISTORY_CIRCUITS)} strategy-history circuit(s), "
+          f"{fastf1_client.FIRST_DETAILED_TIMING_SEASON}-{current_year} each (Race only, no telemetry)...")
+    for circuit in STRATEGY_HISTORY_CIRCUITS:
+        for season in seasons:
+            _warm_session(season, circuit, "R", telemetry=False)
+
+
 if __name__ == "__main__":
     warm_current_season()
     print()
     warm_recap_races()
+    print()
+    warm_strategy_history_circuits()
     print()
     warm_current_season_telemetry()
