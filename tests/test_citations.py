@@ -165,3 +165,33 @@ def test_filter_citations_by_answer_handles_mixed_race_and_track_citations():
     assert filter_citations_by_answer(citations, answer) == [
         {"type": "race", "race_name": "Monaco Grand Prix", "season": 2026}
     ]
+
+
+def test_extract_citations_parses_optional_location():
+    messages = [
+        HumanMessage(content="Give me a recap of the Madrid GP"),
+        _tool_message("[Source: Spanish Grand Prix (2026) - Madrid]\nAntonelli won."),
+    ]
+    assert extract_citations(messages) == [
+        {"type": "race", "race_name": "Spanish Grand Prix", "season": 2026, "location": "Madrid"}
+    ]
+
+
+def test_filter_citations_by_answer_matches_location_when_official_name_absent():
+    # The exact scenario found via live testing: the 2026 "Spanish Grand
+    # Prix" is run at Madrid's new circuit, and the model says "Madrid"
+    # throughout its answer, never "Spanish" - the location field must
+    # still let this citation match.
+    citations = [
+        {"type": "race", "race_name": "Spanish Grand Prix", "season": 2026, "location": "Madrid"}
+    ]
+    answer = "Madrid's Formula 1 debut saw Antonelli win from P2."
+    assert filter_citations_by_answer(citations, answer) == citations
+
+
+def test_filter_citations_by_answer_still_matches_official_name_when_location_present():
+    citations = [
+        {"type": "race", "race_name": "Spanish Grand Prix", "season": 2026, "location": "Madrid"}
+    ]
+    answer = "The Spanish Grand Prix saw Antonelli win from P2."
+    assert filter_citations_by_answer(citations, answer) == citations

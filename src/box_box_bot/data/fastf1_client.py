@@ -10,6 +10,7 @@ instead.
 """
 
 import datetime
+import logging
 import math
 import threading
 
@@ -18,6 +19,8 @@ import pandas as pd
 from fastf1.ergast import Ergast
 
 from box_box_bot.config import FASTF1_CACHE_DIR
+
+_logger = logging.getLogger(__name__)
 
 _cache_ready = False
 
@@ -342,8 +345,24 @@ def get_circuit_speed_map(
         step = -(-len(telemetry) // max_points)
         telemetry = telemetry.iloc[::step]
 
-    circuit_info = session.get_circuit_info()
-    rotation = math.radians(circuit_info.rotation)
+    # fastf1's own get_circuit_info() is documented to return None on a
+    # lookup miss, but its *internal* implementation doesn't check for
+    # that before calling a method on the result - it raises AttributeError
+    # instead of actually returning None. A brand-new circuit fastf1
+    # hasn't manually mapped corner markers for yet (confirmed live for
+    # Madrid's 2026 debut) hits exactly this. Corner markers are a
+    # decorative extra, not the point of the map - the real telemetry
+    # outline is still valid - so degrade to no corners/no rotation
+    # rather than losing the whole visualization over missing metadata.
+    try:
+        circuit_info = session.get_circuit_info()
+        rotation = math.radians(circuit_info.rotation)
+        rotation_degrees = circuit_info.rotation
+    except Exception:
+        _logger.warning("get_circuit_info failed for %s round %s - rendering without corner markers", season, round)
+        circuit_info = None
+        rotation = 0.0
+        rotation_degrees = 0
 
     points = []
     for _, row in telemetry.iterrows():
@@ -351,15 +370,16 @@ def get_circuit_speed_map(
         points.append({"X": rx, "Y": ry, "Speed": row["Speed"]})
 
     corners = []
-    for _, row in circuit_info.corners.iterrows():
-        cx, cy = _rotate(row["X"], row["Y"], rotation)
-        corners.append({"Number": row["Number"], "Letter": row["Letter"], "X": cx, "Y": cy})
+    if circuit_info is not None:
+        for _, row in circuit_info.corners.iterrows():
+            cx, cy = _rotate(row["X"], row["Y"], rotation)
+            corners.append({"Number": row["Number"], "Letter": row["Letter"], "X": cx, "Y": cy})
 
     return {
         "circuit": session.event["EventName"],
         "driver": lap["Driver"],
         "lap_time": str(lap["LapTime"]),
-        "rotation_degrees": circuit_info.rotation,
+        "rotation_degrees": rotation_degrees,
         "points": points,
         "corners": corners,
     }

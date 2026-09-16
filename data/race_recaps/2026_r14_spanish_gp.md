@@ -2,6 +2,7 @@
 season: 2026
 round: 14
 race_name: Spanish Grand Prix
+location: Madrid
 date: 2026-09-13
 ---
 

@@ -9,6 +9,8 @@ NESTED_TABLE_KEYS = {
     "get_circuit_strategy_history": "by_season",
 }
 
+PREDICTOR_TABLE_TOOLS = {"predict_constructor_championship", "predict_drivers_championship"}
+
 
 def _build_label(name: str, call_args: dict) -> str:
     """A short, human-readable caption for one visual, built from the
@@ -51,6 +53,29 @@ def _unwrap_fallback(data):
     return data, None
 
 
+def _predictor_table(data: dict) -> list[dict]:
+    """Reshapes a predictor tool's {"predicted_orders": {model_name:
+    [ordered names]}, ...} into one row per finishing position, one
+    column per model - the natural side-by-side comparison, since these
+    models are deliberately never averaged into a single order (see
+    agent/predictor_agent.py). A ragged case (one model's list shorter
+    than another's, which shouldn't normally happen but isn't guaranteed
+    by the shape alone) pads with None rather than crashing.
+    """
+    predicted_orders = data.get("predicted_orders")
+    if not isinstance(predicted_orders, dict) or not predicted_orders:
+        return []
+
+    max_len = max(len(order) for order in predicted_orders.values())
+    rows = []
+    for position in range(max_len):
+        row = {"Position": position + 1}
+        for model_name, order in predicted_orders.items():
+            row[model_name] = order[position] if position < len(order) else None
+        rows.append(row)
+    return rows
+
+
 def _is_valid_chart_data(name: str, data) -> bool:
     """A failed tool call also returns a truthy JSON value -
     `{"error": "..."}` (see tools/fastf1_tools.py's _catch_fastf1_errors)
@@ -82,9 +107,11 @@ def extract_visuals(messages: list) -> list[dict]:
     Most tools already return list[dict] JSON, which becomes a generic
     table with no per-tool allowlist to maintain. Two tools override
     that with a specific chart type (CHART_TOOLS); one returns a dict
-    whose table content lives under a nested key (NESTED_TABLE_KEYS).
-    Anything else (prose like search_race_recaps, or a non-row-shaped
-    dict like the predictor tools' per-model order dict) is skipped.
+    whose table content lives under a nested key (NESTED_TABLE_KEYS);
+    the two predictor tools return a dict of per-model orders that gets
+    reshaped into a position-by-model comparison table
+    (PREDICTOR_TABLE_TOOLS, see _predictor_table). Anything else (prose
+    like search_race_recaps) is skipped.
     """
     last_human_idx = max(i for i, m in enumerate(messages) if m.type == "human")
     turn_messages = messages[last_human_idx:]
@@ -120,6 +147,13 @@ def extract_visuals(messages: list) -> list[dict]:
         if name in CHART_TOOLS:
             if _is_valid_chart_data(name, data):
                 visuals.append({"type": CHART_TOOLS[name], "tool": name, "data": data, "label": label})
+            continue
+
+        if name in PREDICTOR_TABLE_TOOLS:
+            if isinstance(data, dict):
+                table_data = _predictor_table(data)
+                if table_data:
+                    visuals.append({"type": "table", "tool": name, "data": table_data, "label": label})
             continue
 
         if name in NESTED_TABLE_KEYS:

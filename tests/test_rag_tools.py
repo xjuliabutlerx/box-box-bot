@@ -5,8 +5,11 @@ from langchain_core.documents import Document
 from box_box_bot.tools.rag_tools import RAG_TOOLS, TRACK_INFO_TOOLS, search_race_recaps, search_track_info
 
 
-def _fake_doc(race_name: str, season: int, content: str = "some recap text") -> Document:
-    return Document(page_content=content, metadata={"race_name": race_name, "season": season})
+def _fake_doc(race_name: str, season: int, content: str = "some recap text", location: str | None = None) -> Document:
+    metadata = {"race_name": race_name, "season": season}
+    if location:
+        metadata["location"] = location
+    return Document(page_content=content, metadata=metadata)
 
 
 def _fake_track_doc(circuit: str, content: str = "some track info") -> Document:
@@ -86,6 +89,18 @@ def test_search_race_recaps_formats_multiple_documents():
 
     assert "[Source: Italian Grand Prix (2025)]\nMonza recap." in result
     assert "[Source: Singapore Grand Prix (2025)]\nSingapore recap." in result
+
+
+def test_search_race_recaps_includes_optional_location_in_source_tag():
+    fake_retriever = MagicMock()
+    fake_retriever.invoke.return_value = [
+        _fake_doc("Spanish Grand Prix", 2026, "Antonelli won.", location="Madrid")
+    ]
+
+    with patch("box_box_bot.tools.rag_tools._get_retriever", return_value=fake_retriever):
+        result = search_race_recaps.invoke({"query": "who won the Madrid GP"})
+
+    assert result == "[Source: Spanish Grand Prix (2026) - Madrid]\nAntonelli won."
 
 
 def test_search_race_recaps_handles_no_results():
