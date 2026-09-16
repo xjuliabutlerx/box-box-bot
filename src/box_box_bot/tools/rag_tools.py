@@ -49,11 +49,20 @@ def search_race_recaps(query: str) -> str:
     if not docs:
         return "No relevant race recaps found."
 
-    formatted = [
-        f"[Source: {doc.metadata.get('race_name')} ({doc.metadata.get('season')})]\n"
-        f"{doc.page_content}"
-        for doc in docs
-    ]
+    formatted = []
+    for doc in docs:
+        tag = f"[Source: {doc.metadata.get('race_name')} ({doc.metadata.get('season')})"
+        # "location" is an optional frontmatter field, only set on recaps
+        # whose common name diverges from the official GP name (e.g. the
+        # 2026 "Spanish Grand Prix" run at Madrid's new circuit) - the
+        # model reaches for the common name in prose far more often than
+        # the official one, and citations.py needs that name available to
+        # match against, not just the official race_name.
+        location = doc.metadata.get("location")
+        if location:
+            tag += f" - {location}"
+        tag += "]"
+        formatted.append(f"{tag}\n{doc.page_content}")
     return "\n\n".join(formatted)
 
 @tool(parse_docstring=True)

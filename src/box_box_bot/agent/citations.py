@@ -1,6 +1,6 @@
 import re
 
-_RACE_SOURCE_PATTERN = re.compile(r"\[Source: (.+?) \((\d{4})\)\]")
+_RACE_SOURCE_PATTERN = re.compile(r"\[Source: (.+?) \((\d{4})\)(?: - (.+?))?\]")
 _TRACK_SOURCE_PATTERN = re.compile(r"\[Source: Track Info - (.+?)\]")
 
 # Generic circuit-naming words stripped before matching a circuit name
@@ -37,11 +37,14 @@ def extract_citations(messages: list) -> list[dict]:
             continue
 
         if getattr(m, "name", None) == "search_race_recaps":
-            for race_name, season in _RACE_SOURCE_PATTERN.findall(m.content):
+            for race_name, season, location in _RACE_SOURCE_PATTERN.findall(m.content):
                 key = ("race", race_name, season)
                 if key not in seen:
                     seen.add(key)
-                    citations.append({"type": "race", "race_name": race_name, "season": int(season)})
+                    citation = {"type": "race", "race_name": race_name, "season": int(season)}
+                    if location:
+                        citation["location"] = location
+                    citations.append(citation)
         elif getattr(m, "name", None) == "search_track_info":
             for circuit in _TRACK_SOURCE_PATTERN.findall(m.content):
                 key = ("track", circuit)
@@ -71,7 +74,14 @@ def filter_citations_by_answer(citations: list[dict], answer_text: str) -> list[
     for c in citations:
         if c["type"] == "race":
             short_name = c["race_name"].lower().replace("grand prix", "").strip()
-            if short_name in answer_lower:
+            location = c.get("location", "").lower()
+            # A race's official name doesn't always match how people
+            # actually refer to it - the 2026 "Spanish Grand Prix" is run
+            # at Madrid's new circuit, and the model reaches for "Madrid"
+            # in prose far more often than "Spanish." location (optional,
+            # only set when the two diverge) is checked as an alternate
+            # match, not a replacement for the short-name check.
+            if short_name in answer_lower or (location and location in answer_lower):
                 matched.append(c)
         elif c["type"] == "track":
             words = [w.strip("()") for w in c["circuit"].lower().split()]

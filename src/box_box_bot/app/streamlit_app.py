@@ -69,7 +69,7 @@ st.html("""
 
 st.title("🏎️ BoxBoxBot")
 st.caption(
-    "Box, box!\n\nI'm your multi-agent F1 pit wall assistant for standings, race results, pit strategy, and the stories behind them powered by live `fastf1` data, retrieval-augmented race recaps, and trained prediction models."
+    "Box, box!\n\nI'm your multi-agent F1 pit wall assistant for standings, race results, pit strategy, and the stories behind them powered by real `fastf1` session data, retrieval-augmented race recaps, and trained prediction models."
     "\n\nAsk about standings, results, tire strategy and safety cars, or the story behind a season (narrative deep-dives cover select races from 2016-2026)."
 )
 

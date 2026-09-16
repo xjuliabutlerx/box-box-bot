@@ -81,13 +81,67 @@ def test_extract_visuals_ignores_prose_tool_results():
     assert extract_visuals(messages) == []
 
 
-def test_extract_visuals_ignores_non_row_shaped_dict_results():
+def test_extract_visuals_reshapes_constructor_predictions_into_a_table():
     # Predictor tools return {"predicted_orders": {model_name: [...]}, ...}
-    # - a dict of dicts/lists, not a flat list of records, so it isn't a
-    # natural table and must not be shown as one.
-    data = {"predicted_orders": {"Monaco": ["Team A", "Team B"]}, "as_of_round": 5}
+    # - a dict of per-model orders, not a flat list of records - reshaped
+    # into one row per finishing position, one column per model, so all
+    # 5 (or 3) independently-trained models compare side by side.
+    data = {
+        "predicted_orders": {
+            "Monaco": ["Team A", "Team B"],
+            "Silverstone": ["Team B", "Team A"],
+        },
+        "as_of_round": 5,
+    }
     messages = [
         HumanMessage(content="Who will win the constructors championship?"),
+        _tool_message(data, name="predict_constructor_championship"),
+    ]
+    assert extract_visuals(messages) == [
+        {
+            "type": "table",
+            "tool": "predict_constructor_championship",
+            "data": [
+                {"Position": 1, "Monaco": "Team A", "Silverstone": "Team B"},
+                {"Position": 2, "Monaco": "Team B", "Silverstone": "Team A"},
+            ],
+            "label": "predict constructor championship",
+        }
+    ]
+
+
+def test_extract_visuals_reshapes_driver_predictions_into_a_table():
+    data = {"predicted_orders": {"Prost": ["Driver A", "Driver B", "Driver C"]}, "as_of_round": 10}
+    messages = [
+        HumanMessage(content="Who will win the drivers championship?"),
+        _tool_message(data, name="predict_drivers_championship"),
+    ]
+    visuals = extract_visuals(messages)
+    assert visuals[0]["type"] == "table"
+    assert visuals[0]["data"] == [
+        {"Position": 1, "Prost": "Driver A"},
+        {"Position": 2, "Prost": "Driver B"},
+        {"Position": 3, "Prost": "Driver C"},
+    ]
+
+
+def test_extract_visuals_predictor_table_pads_ragged_model_orders():
+    data = {"predicted_orders": {"A": ["X", "Y"], "B": ["X"]}, "as_of_round": 1}
+    messages = [
+        HumanMessage(content="Predict it"),
+        _tool_message(data, name="predict_constructor_championship"),
+    ]
+    visuals = extract_visuals(messages)
+    assert visuals[0]["data"] == [
+        {"Position": 1, "A": "X", "B": "X"},
+        {"Position": 2, "A": "Y", "B": None},
+    ]
+
+
+def test_extract_visuals_ignores_empty_predictor_orders():
+    data = {"predicted_orders": {}, "as_of_round": 1}
+    messages = [
+        HumanMessage(content="Predict it"),
         _tool_message(data, name="predict_constructor_championship"),
     ]
     assert extract_visuals(messages) == []
