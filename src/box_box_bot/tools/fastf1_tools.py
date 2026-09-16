@@ -248,7 +248,7 @@ def get_fastest_laps(season:int, round: int | str, session_type: str = "R", top_
 def get_season_schedule(season: int) -> str:
     """Get the race calendar for a season: round number, country, location, event name, date, format (conventional or sprint weekend), and whether the race is completed. Excludes pre-season testing.
 
-    Every row carries "IsCompleted" (true/false), computed against today's date - not something you need to work out yourself. To find "the most recent race," take the completed row with the highest RoundNumber; for "the next race," take the first non-completed row (schedules run in RoundNumber order). Don't compare EventDate values against today's date by eye to answer this - scanning a full season's worth of dates by hand is exactly the kind of thing that's easy to get subtly wrong; IsCompleted already did that comparison for you.
+    For "the most recent race" or "the next race," use get_most_recent_race instead of this one - it returns that single answer directly rather than a full calendar to scan. Every row here still carries "IsCompleted" (true/false, computed against today's date) for other completed-vs-upcoming questions (e.g. "how many races are left this season").
 
     Args:
         season: The four-digit F1 season year, e.g. 2026
@@ -261,6 +261,34 @@ def get_season_schedule(season: int) -> str:
             event_date = event_date.date()
         row["IsCompleted"] = isinstance(event_date, datetime.date) and event_date <= today
     return json.dumps(data, default=str)
+
+
+@tool(parse_docstring=True)
+@_catch_fastf1_errors
+def get_most_recent_race(season: int) -> str:
+    """Find the most recently completed race and the next upcoming race for a season, as of today.
+
+    Use this - not get_season_schedule - whenever a question asks about "the most recent race," "the latest race," "the last race," or "the next race" with no specific race named. This computes the answer directly in code rather than asking you to scan and compare dates across a full season's schedule yourself, which is exactly the kind of thing that's easy to get subtly wrong.
+
+    Args:
+        season: The four-digit F1 season year, e.g. 2026
+    """
+    schedule = fastf1_client.get_season_schedule(season)
+    today = datetime.date.today()
+    completed = []
+    upcoming = []
+    for row in schedule:
+        event_date = row.get("EventDate")
+        if hasattr(event_date, "date"):
+            event_date = event_date.date()
+        if isinstance(event_date, datetime.date) and event_date <= today:
+            completed.append(row)
+        else:
+            upcoming.append(row)
+
+    most_recent = max(completed, key=lambda row: row["RoundNumber"]) if completed else None
+    next_race = min(upcoming, key=lambda row: row["RoundNumber"]) if upcoming else None
+    return json.dumps({"most_recent_completed_race": most_recent, "next_upcoming_race": next_race}, default=str)
 
 @tool(parse_docstring=True)
 @_catch_fastf1_errors
@@ -372,6 +400,7 @@ FASTF1_TOOLS = [
     get_race_results,
     get_fastest_laps,
     get_season_schedule,
+    get_most_recent_race,
     get_all_time_driver_records,
 ]
 

@@ -15,6 +15,7 @@ from box_box_bot.tools.fastf1_tools import (
     get_constructor_standings,
     get_driver_standings,
     get_fastest_laps,
+    get_most_recent_race,
     get_pit_stops,
     get_race_control_messages,
     get_race_results,
@@ -31,6 +32,7 @@ def test_stats_tools_are_registered():
         "get_race_results",
         "get_fastest_laps",
         "get_season_schedule",
+        "get_most_recent_race",
         "get_all_time_driver_records",
     }
 
@@ -242,6 +244,79 @@ def test_get_season_schedule_marks_a_future_race_as_not_completed():
         result = get_season_schedule.invoke({"season": 2026})
 
     assert json.loads(result)[0]["IsCompleted"] is False
+
+
+_MIXED_SCHEDULE = [
+    {
+        "RoundNumber": 12,
+        "Country": "Netherlands",
+        "Location": "Zandvoort",
+        "EventName": "Dutch Grand Prix",
+        "EventFormat": "conventional",
+        "EventDate": datetime.date(2026, 8, 23),
+    },
+    {
+        "RoundNumber": 13,
+        "Country": "Italy",
+        "Location": "Monza",
+        "EventName": "Italian Grand Prix",
+        "EventFormat": "conventional",
+        "EventDate": datetime.date(2026, 9, 6),
+    },
+    {
+        "RoundNumber": 14,
+        "Country": "Spain",
+        "Location": "Madrid",
+        "EventName": "Spanish Grand Prix",
+        "EventFormat": "conventional",
+        "EventDate": datetime.date(2026, 9, 13),
+    },
+    {
+        "RoundNumber": 15,
+        "Country": "Azerbaijan",
+        "Location": "Baku",
+        "EventName": "Azerbaijan Grand Prix",
+        "EventFormat": "conventional",
+        "EventDate": datetime.date(2099, 1, 1),
+    },
+]
+
+
+def test_get_most_recent_race_finds_the_latest_completed_round():
+    # Regression: a live test asking "give me a recap of the most recent
+    # race" landed on an earlier round (Zandvoort/round 12) instead of the
+    # actual latest one (Madrid/round 14) even with a per-row IsCompleted
+    # flag - the model still had to scan the list and compare round
+    # numbers itself. This tool returns the single answer directly so
+    # there's nothing left to scan.
+    with patch("box_box_bot.tools.fastf1_tools.fastf1_client.get_season_schedule", return_value=_MIXED_SCHEDULE):
+        result = get_most_recent_race.invoke({"season": 2026})
+
+    parsed = json.loads(result)
+    assert parsed["most_recent_completed_race"]["EventName"] == "Spanish Grand Prix"
+    assert parsed["most_recent_completed_race"]["RoundNumber"] == 14
+    assert parsed["next_upcoming_race"]["EventName"] == "Azerbaijan Grand Prix"
+    assert parsed["next_upcoming_race"]["RoundNumber"] == 15
+
+
+def test_get_most_recent_race_handles_no_completed_races_yet():
+    future_only = [{**_MIXED_SCHEDULE[3], "RoundNumber": 1}]
+    with patch("box_box_bot.tools.fastf1_tools.fastf1_client.get_season_schedule", return_value=future_only):
+        result = get_most_recent_race.invoke({"season": 2099})
+
+    parsed = json.loads(result)
+    assert parsed["most_recent_completed_race"] is None
+    assert parsed["next_upcoming_race"]["RoundNumber"] == 1
+
+
+def test_get_most_recent_race_handles_a_fully_completed_season():
+    past_only = [{**_MIXED_SCHEDULE[0], "EventDate": datetime.date(2020, 1, 1)}]
+    with patch("box_box_bot.tools.fastf1_tools.fastf1_client.get_season_schedule", return_value=past_only):
+        result = get_most_recent_race.invoke({"season": 2020})
+
+    parsed = json.loads(result)
+    assert parsed["most_recent_completed_race"]["RoundNumber"] == 12
+    assert parsed["next_upcoming_race"] is None
 
 
 def test_get_tire_strategy_calls_data_layer_and_returns_json():
