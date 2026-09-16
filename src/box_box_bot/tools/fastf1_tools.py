@@ -246,14 +246,20 @@ def get_fastest_laps(season:int, round: int | str, session_type: str = "R", top_
 @tool(parse_docstring=True)
 @_catch_fastf1_errors
 def get_season_schedule(season: int) -> str:
-    """Get the race calendar for a season: round number, country, location, event name, date, and format (conventional or sprint weekend).
+    """Get the race calendar for a season: round number, country, location, event name, date, format (conventional or sprint weekend), and whether the race is completed. Excludes pre-season testing.
 
-    Use this to answer questions about which races are on the calendar, when a race takes place, or which race a round number refers to. Excludes pre-season testing.
+    Every row carries "IsCompleted" (true/false), computed against today's date - not something you need to work out yourself. To find "the most recent race," take the completed row with the highest RoundNumber; for "the next race," take the first non-completed row (schedules run in RoundNumber order). Don't compare EventDate values against today's date by eye to answer this - scanning a full season's worth of dates by hand is exactly the kind of thing that's easy to get subtly wrong; IsCompleted already did that comparison for you.
 
     Args:
         season: The four-digit F1 season year, e.g. 2026
     """
     data = fastf1_client.get_season_schedule(season)
+    today = datetime.date.today()
+    for row in data:
+        event_date = row.get("EventDate")
+        if hasattr(event_date, "date"):
+            event_date = event_date.date()
+        row["IsCompleted"] = isinstance(event_date, datetime.date) and event_date <= today
     return json.dumps(data, default=str)
 
 @tool(parse_docstring=True)
