@@ -1,6 +1,6 @@
 # Race recap corpus
 
-Thirty-six original recap documents used to seed the RAG layer (step 3): sixteen genuinely historical races spanning 2016-2024 (only the ones that actually mattered for a season's story - title deciders, breakthrough wins, defining incidents, not full-season coverage), plus the 2025 title fight and the full first three quarters of the 2026 season (F1's new power-unit/aero regulations took effect in 2026).
+Thirty-seven original recap documents used to seed the RAG layer (step 3): sixteen genuinely historical races spanning 2016-2024 (only the ones that actually mattered for a season's story - title deciders, breakthrough wins, defining incidents, not full-season coverage), plus the 2025 title fight and the first fifteen rounds of the 2026 season (F1's new power-unit/aero regulations took effect in 2026).
 
 These are **written for this project**, not copied from any news outlet. Every factual claim (winners, positions, points, grid slots, DNF causes) was verified against our own `box_box_bot.data.fastf1_client` module — see the session in project history where each race's classified results were pulled live and cross-checked before writing. Narrative context (why a result mattered, driver/team storylines) was researched via web search and then written in original prose, not quoted.
 
@@ -46,5 +46,6 @@ The sixteen 2016-2024 recaps cover *real* Formula 1 history rather than this pro
 | 2026_r12_dutch_gp.md | 2026 | 12 | Dutch GP |
 | 2026_r13_italian_gp.md | 2026 | 13 | Italian GP |
 | 2026_r14_spanish_gp.md | 2026 | 14 | Spanish GP (Madrid) |
+| 2026_r15_azerbaijan_gp.md | 2026 | 15 | Azerbaijan GP |
 
 Each file has a YAML frontmatter block (`season`, `round`, `race_name`, `date`) that the step-3 ingestion script reads into vector store metadata, so retrieved chunks can cite their source document/race.
